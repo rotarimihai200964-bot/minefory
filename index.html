@@ -1,13 +1,99 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ro">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1020" />
-    <title>Minefory Host</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minefory - Hosting Panel</title>
+    <script src="https://jsdelivr.net"></script>
+    <link rel="stylesheet" href="https://cloudflare.com">
+    <style>
+        body { background-color: #0b0f19; color: #f3f4f6; font-family: sans-serif; }
+        .glass-card { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.05); transition: all 0.3s ease; }
+        .glass-card:hover { border-color: rgba(99, 102, 241, 0.4); transform: translateY(-2px); }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+    <div class="w-64 bg-[#0d1321] border-r border-gray-800 flex flex-col justify-between p-4">
+        <div>
+            <div class="flex items-center gap-3 px-2 py-3 border-b border-gray-800 mb-6">
+                <div class="bg-indigo-600 p-2 rounded-lg text-white shadow-lg"><i class="fa-solid fa-bolt text-xl"></i></div>
+                <div>
+                    <h1 class="font-bold text-lg text-white">MINEFORY</h1>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Hosting Panel</p>
+                </div>
+            </div>
+            <nav class="space-y-1">
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl bg-indigo-600/10 text-indigo-400 font-medium"><i class="fa-solid fa-chart-pie"></i> Overview</a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-gray-800/50 hover:text-white"><i class="fa-solid fa-server"></i> Servere</a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-gray-800/50 hover:text-white"><i class="fa-solid fa-users"></i> Utilizatori</a>
+                <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-gray-800/50 hover:text-white"><i class="fa-solid fa-gears"></i> Setări</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-3 p-2 bg-gray-900/40 rounded-xl border border-gray-800/60">
+            <div class="w-10 h-10 rounded-lg bg-indigo-500 flex items-center justify-center font-bold text-white">MA</div>
+            <div><h4 class="text-sm font-medium text-white">Minefory Admin</h4><p class="text-xs text-gray-500">Administrator</p></div>
+        </div>
+    </div>
+    <div class="flex-1 flex flex-col h-full overflow-y-auto bg-[#080c14]">
+        <header class="h-20 border-b border-gray-800/60 flex items-center justify-between px-8 bg-[#0d1321]/40 backdrop-blur-md sticky top-0">
+            <div class="relative w-80">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                <input type="text" id="serverSearch" placeholder="Caută un server..." class="w-full pl-11 pr-4 py-2.5 bg-gray-900/50 border border-gray-800 rounded-xl text-sm text-gray-200 focus:outline-none focus:border-indigo-500">
+            </div>
+            <button class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm px-5 py-2.5 rounded-xl"><i class="fa-solid fa-plus mr-2"></i> Creează Server</button>
+        </header>
+        <main class="p-8 space-y-8 max-w-7xl w-full mx-auto">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+                <div class="glass-card p-5 rounded-2xl flex items-center justify-between"><div><p class="text-xs font-semibold text-gray-500 uppercase">Total Servere</p><h3 class="text-3xl font-bold text-white">3</h3></div></div>
+                <div class="glass-card p-5 rounded-2xl flex items-center justify-between"><div><p class="text-xs font-semibold text-gray-500 uppercase">Servere Online</p><h3 id="onlineCount" class="text-3xl font-bold text-emerald-400">2</h3></div></div>
+                <div class="glass-card p-5 rounded-2xl flex items-center justify-between"><div><p class="text-xs font-semibold text-gray-500 uppercase">CPU Mediu</p><h3 class="text-3xl font-bold text-white">9%</h3></div></div>
+                <div class="glass-card p-5 rounded-2xl flex items-center justify-between"><div><p class="text-xs font-semibold text-gray-500 uppercase">RAM Total</p><h3 class="text-3xl font-bold text-white">2.9 GB</h3></div></div>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold text-white mb-5">Serverele tale</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="serversGrid">
+                    <div class="glass-card p-6 rounded-2xl flex flex-col justify-between server-card" data-name="survival smp">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-cubes text-indigo-400"></i> Survival SMP</h3>
+                            <span class="status-badge px-3 py-1 rounded-full text-xs bg-emerald-500/10 text-emerald-400">Online</span>
+                        </div>
+                        <button onclick="toggleServer(this)" class="w-full py-2 rounded-xl text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">Stop</button>
+                    </div>
+                    <div class="glass-card p-6 rounded-2xl flex flex-col justify-between server-card" data-name="creative">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i> Creative</h3>
+                            <span class="status-badge px-3 py-1 rounded-full text-xs bg-red-500/10 text-red-400">Offline</span>
+                        </div>
+                        <button onclick="toggleServer(this)" class="w-full py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-all">Start</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        function toggleServer(btn) {
+            let card = btn.closest('.server-card');
+            let badge = card.querySelector('.status-badge');
+            if (btn.innerText === "Stop") {
+                badge.className = "status-badge px-3 py-1 rounded-full text-xs bg-red-500/10 text-red-400";
+                badge.innerText = "Offline";
+                btn.innerText = "Start";
+                btn.className = "w-full py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-all";
+            } else {
+                badge.className = "status-badge px-3 py-1 rounded-full text-xs bg-emerald-500/10 text-emerald-400";
+                badge.innerText = "Online";
+                btn.innerText = "Stop";
+                btn.className = "w-full py-2 rounded-xl text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all";
+            }
+            let online = 0; document.querySelectorAll('.status-badge').forEach(b => { if(b.innerText === "Online") online++; });
+            document.getElementById('onlineCount').innerText = online;
+        }
+        document.getElementById('serverSearch').addEventListener('input', function(e) {
+            let q = e.target.value.toLowerCase();
+            document.querySelectorAll('.server-card').forEach(c => {
+                c.style.display = c.getAttribute('data-name').includes(q) ? 'flex' : 'none';
+            });
+        });
+    </script>
+</body>
 </html>
