@@ -1,6 +1,6 @@
 # Minefory Host Workspace
 
-Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner/Co-owner roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
+Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner, Co-owner, and restricted Termux-member roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
 
 ## What host actions are supported
 
@@ -27,7 +27,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
 
 ## Supabase setup
 
-1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql).
+1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql), then run [`supabase/migrations/202611070002_termux_member_role.sql`](./supabase/migrations/202611070002_termux_member_role.sql) to enable the restricted Termux role.
 2. In **Authentication → Sign In / Providers → Google**, enable Google and add the OAuth client ID and secret from Google Cloud Console. Set the Google OAuth redirect URI to `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`. In **Authentication → URL Configuration**, allow the production URL `https://minefory.pages.dev` and your local development URL. Never put the Google client secret in the frontend.
 3. Sign in once with the Google account that should own Minefory, then run this SQL in the Supabase SQL Editor after replacing the email with that Google account's email:
 
@@ -41,7 +41,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
      where public.minefory_members.role = 'co_owner';
    ```
 
-4. The Owner can add Co-owners from **Rankuri**; each Co-owner should sign in with Google once before being granted a role. Public workspace access is not available.
+4. From **Rankuri**, the Owner can add a **Co-owner** or **Membru Termux**; each person should sign in once before being granted a role. A Termux member can view, add, operate, and remove only Termux hosts and cannot access Ubuntu, sections, Admin Panel, or Rankuri. These limits are enforced by Supabase RLS and the `host-action` Edge Function as well as by the UI. Public workspace access is not available.
 5. In Cloudflare Pages, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the build and deploy again. Keep `.env` local; do not commit it.
 6. Deploy the Supabase Edge Function:
 
@@ -51,7 +51,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
 
    The function uses Supabase's server-side `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` environment values. The service-role key must remain server-side.
 
-If login succeeds but Minefory displays **Nu ai acces la workspace**, first verify that the migration above ran successfully and that the signed-in email appears in `public.minefory_members` with the `owner` or `co_owner` role. The Owner insert statement above adds the first authorized account. The page now shows Supabase lookup errors directly when the membership table or its policies are missing.
+If login succeeds but Minefory displays **Nu ai acces la workspace**, first verify that the migration above ran successfully and that the signed-in email appears in `public.minefory_members` with the `owner`, `co_owner`, or `termux_member` role. The Owner insert statement above adds the first authorized account. The page now shows Supabase lookup errors directly when the membership table or its policies are missing.
 
 Row Level Security protects workspace data. Owner can add/remove Co-owners; Owner and Co-owner can manage hosts and custom sections. The machine-agent tokens are stored in a separate table that authenticated browser clients cannot read.
 
@@ -110,7 +110,7 @@ The platform pages in Minefory provide copyable setup commands and searchable do
 The dashboard frontend and Supabase Edge Function are separate deployments. A successful Pages build does not deploy the Edge Function or install host agents.
 # Minefory Host Workspace
 
-Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner/Co-owner roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
+Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner, Co-owner, and restricted Termux-member roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
 
 ## What host actions are supported
 
@@ -135,7 +135,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
 
 ## Supabase setup
 
-1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql).
+1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql), then run [`supabase/migrations/202611070002_termux_member_role.sql`](./supabase/migrations/202611070002_termux_member_role.sql) to enable the restricted Termux role.
 2. In **Authentication → Sign In / Providers → Google**, enable Google and add the OAuth client ID and secret from Google Cloud Console. Set the Google OAuth redirect URI to `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`. In **Authentication → URL Configuration**, allow the production URL `https://minefory.pages.dev` and your local development URL. Never put the Google client secret in the frontend.
 3. Sign in once with the Google account that should own Minefory, then run this SQL in the Supabase SQL Editor after replacing the email with that Google account's email:
 
@@ -149,7 +149,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
      where public.minefory_members.role = 'co_owner';
    ```
 
-4. The Owner can add Co-owners from **Rankuri**; each Co-owner should sign in with Google once before being granted a role. Public workspace access is not available.
+4. From **Rankuri**, the Owner can add a **Co-owner** or **Membru Termux**; each person should sign in once before being granted a role. A Termux member can view, add, operate, and remove only Termux hosts and cannot access Ubuntu, sections, Admin Panel, or Rankuri. These limits are enforced by Supabase RLS and the `host-action` Edge Function as well as by the UI. Public workspace access is not available.
 5. In Cloudflare Pages, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the build and deploy again. Keep `.env` local; do not commit it.
 6. Deploy the Supabase Edge Function:
 
@@ -159,7 +159,7 @@ Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Emai
 
    The function uses Supabase's server-side `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` environment values. The service-role key must remain server-side.
 
-If login succeeds but Minefory displays **Nu ai acces la workspace**, first verify that the migration above ran successfully and that the signed-in email appears in `public.minefory_members` with the `owner` or `co_owner` role. The Owner insert statement above adds the first authorized account. The page now shows Supabase lookup errors directly when the membership table or its policies are missing.
+If login succeeds but Minefory displays **Nu ai acces la workspace**, first verify that the migration above ran successfully and that the signed-in email appears in `public.minefory_members` with the `owner`, `co_owner`, or `termux_member` role. The Owner insert statement above adds the first authorized account. The page now shows Supabase lookup errors directly when the membership table or its policies are missing.
 
 Row Level Security protects workspace data. Owner can add/remove Co-owners; Owner and Co-owner can manage hosts and custom sections. The machine-agent tokens are stored in a separate table that authenticated browser clients cannot read.
 
@@ -216,7 +216,7 @@ When adding the host in Minefory, enter the HTTPS address of its tunnel, its pla
 The dashboard frontend and Supabase Edge Function are separate deployments. A successful Pages build does not deploy the Edge Function or install host agents.
 # Minefory Host Workspace
 
-Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner/Co-owner roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
+Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner, Co-owner, and restricted Termux-member roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
 
 ## What host actions are supported
 
@@ -241,7 +241,7 @@ Requirements: Node.js 20+ and a Supabase project with Email/Password authenticat
 
 ## Supabase setup
 
-1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql).
+1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql), then run [`supabase/migrations/202611070002_termux_member_role.sql`](./supabase/migrations/202611070002_termux_member_role.sql) to enable the restricted Termux role.
 2. Create the Owner account in Supabase Authentication, then run this SQL after replacing the email with that account's email:
 
    ```sql
