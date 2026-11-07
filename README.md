@@ -14,8 +14,8 @@ The project has a React panel and a Node.js API that downloads Minecraft server 
 2. The provided `.env.example` is prefilled with this project's Supabase URL, publishable key, and administrator email. Use `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_ADMIN_EMAIL` for the frontend; use `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `ADMIN_EMAIL` for the API. Never use `SUPABASE_SECRET_KEY` or a `service_role` key.
 3. Keep `API_HOST=127.0.0.1` for local development. Set `ALLOWED_ORIGINS=http://localhost:5173`.
 4. Configure Java executable paths (for example `JAVA_21_PATH=C:\Program Files\Eclipse Adoptium\jdk-21\bin\java.exe`). The selected Java version is checked before starting a server.
-5. In Supabase, create the administrator account matching `ADMIN_EMAIL` / `VITE_ADMIN_EMAIL`. To allow sign-in without confirming the address, turn off **Confirm email** for the Email provider in Supabase Authentication settings. This is a Supabase project setting and cannot be changed by this app's publishable key.
-6. This is an admin-only panel: public registration is not shown, the frontend allows only the configured admin email, and the API independently checks `ADMIN_EMAIL` on every protected request. Also disable public signups in Supabase under **Authentication → Settings**.
+5. In Supabase, create the Owner account matching `ADMIN_EMAIL` / `VITE_ADMIN_EMAIL`. To allow sign-in without confirming the address, turn off **Confirm email** for the Email provider in Supabase Authentication settings. This is a Supabase project setting and cannot be changed by this app's publishable key.
+6. Public registration is not shown. Disable public signups in Supabase under **Authentication → Settings**. The Owner or a Co-owner can grant panel access to an email with an existing Supabase account; the API verifies that the account predates the access grant.
 7. Install dependencies and run the frontend and API in separate terminals:
 
    ```sh
@@ -27,13 +27,22 @@ The project has a React panel and a Node.js API that downloads Minecraft server 
 Vite proxies `/api` to the local API. Server data and JARs are stored under `data/` and are excluded from Git.
 The administrator email is public configuration, not a password. Set or reset its password through Supabase; never put the password in `.env.example`, frontend code, or Git.
 
-After signing in, the **Admin panel** page shows the API health state, server and RAM totals, and management actions for servers owned by the administrator account. It does not enumerate or manage other Supabase users; account administration remains in Supabase.
+### Team access and roles
+
+The API persists team access in `DATA_DIR/access-control.json`. The Owner is the Supabase account whose email matches `ADMIN_EMAIL`; its identity is fixed after its first sign-in and cannot be changed through team management.
+
+- **Owner:** all panel and server permissions; the Owner account cannot be edited or removed by team management.
+- **Co-owner:** full panel and server access, including creating/deleting servers and managing team access.
+- **Developer:** can view, create, configure, start/stop servers, use the console, and manage files; cannot delete servers or manage team access.
+- **Member:** can access only assigned servers and the selected permissions: view, manage servers, console, files, and/or delete. Viewing assigned servers is required.
+
+Add team emails only after their Supabase accounts exist. Existing accounts must have been created before access is granted; a later-created account with the same address is rejected. Adding access does not create an account or send an invitation. The user signs in with their own Supabase credentials. Role checks and server scoping are enforced by the API, not only by hidden panel controls.
 
 ## Remote deployment
 
 - Put the API behind a reverse proxy with HTTPS. Keep the Node API bound to `127.0.0.1`; do not expose it directly to the public internet.
 - Set `ALLOWED_ORIGINS` to the exact HTTPS origin of the panel and set the frontend `VITE_API_URL` to the API's HTTPS origin at build time.
-- Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `DATA_DIR`, `MINECRAFT_HOST`, and Java paths on the API host. The publishable key can be used to validate Supabase sessions; never use a `SUPABASE_SECRET_KEY` or `service_role` key in the browser or API config.
+- Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `DATA_DIR`, `MINECRAFT_HOST`, and Java paths on the API host. Keep `DATA_DIR` on a persistent volume: it stores access assignments, server metadata, JARs, worlds, and configuration files. Losing or replacing that volume loses those records and files. The publishable key can be used to validate Supabase sessions; never use a `SUPABASE_SECRET_KEY` or `service_role` key in the browser or API config.
 - Configure Supabase's Site URL and allowed redirect URLs for the deployed panel. Configure SMTP for confirmation and password-recovery mail.
 - Open the allocated Minecraft TCP port range (25565-25664) in the host firewall and set `MINECRAFT_HOST` to the address players should use.
 
@@ -48,10 +57,13 @@ The API stores server metadata, JARs, worlds, and server files under `DATA_DIR`.
 Keep the API in its own persistent Node.js service, not inside a Minecraft server's Java startup process. The API starts Java child processes itself and needs the selected Java executable plus allocated Minecraft ports. Verify the hosting provider permits this before using it as a game-server host.
 
 ## API
+Team server operations use the Owner's host storage, while Members can reach only their explicitly assigned server IDs. API authorization enforces these rules regardless of what the frontend displays.
 
 All server endpoints except `/api/health` require `Authorization: Bearer <Supabase access token>`. The API validates the token with Supabase and scopes server IDs and files to the authenticated user.
 
 - `GET /api/servers` — list the caller's servers
+- `GET /api/access/me` — resolve the caller's effective role and permissions
+- `GET`, `POST /api/access/members` and `PATCH`, `DELETE /api/access/members/:email` — manage team access (Owner/Co-owner only)
 - `POST /api/servers` — download and checksum-verify the selected official Vanilla or Paper `server.jar`
 - `GET`, `PATCH`, `DELETE /api/servers/:id` — inspect, configure (while stopped), or delete a server
 - `POST /api/servers/:id/start`, `/stop`, `/restart`, `/command` — manage the Java process
@@ -63,8 +75,3 @@ Starting a server requires the user to accept the Minecraft EULA in its settings
 The API limits each account to 5 servers and 32 GB of configured RAM across those servers.
 
 The plugin catalog is still a UI selection only; it does not download third-party plugin JARs. This API manages Minecraft server files/processes but does not replace a production isolation layer such as Pterodactyl/Wings or containers. Run it only on a host you control, use HTTPS remotely, and keep server data backed up.
-
-
-## Cloudflare Pages deployment
-
-Use `npm run build` as the build command and `dist` as the output directory. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_ADMIN_EMAIL`, and `VITE_API_URL` in the Cloudflare Pages production build environment. `VITE_API_URL` must be the HTTPS origin of the separate Node.js API. Keep `.env` files out of the public repository; use Cloudflare build variables instead.
