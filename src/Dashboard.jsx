@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowUp, Check, ChevronRight, CircleHelp,
-  Cpu, LayoutDashboard, LoaderCircle, LogOut, Mail,
-  Menu, Plus, RefreshCw, Server, Settings2, Shield, ShieldCheck, Terminal,
+  Activity, AlertTriangle, ArrowUp, Check, ChevronRight, CircleHelp, Copy,
+  Cpu, ExternalLink, LayoutDashboard, LoaderCircle, LogOut, Mail,
+  Menu, Plus, RefreshCw, Search, Server, Settings2, Shield, ShieldCheck, Terminal,
   Trash2, UserPlus, Users, X, Zap
 } from 'lucide-react';
 import { supabase } from './supabase.js';
@@ -34,6 +34,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [machineFormOpen, setMachineFormOpen] = useState(false);
   const [actionResults, setActionResults] = useState({});
 
   const loadData = useCallback(async () => {
@@ -60,6 +61,12 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   }, [loadData]);
 
   const activeConfig = useMemo(() => navigation.find(item => item.id === activePage) || navigation[0], [activePage]);
+
+  function openMachineForm() {
+    setActivePage('admin');
+    setMachineFormOpen(true);
+    setMobileOpen(false);
+  }
 
   async function runAction(machine, action) {
     if (action === 'reboot' && !window.confirm(`Confirmi reboot pentru ${machine.name}? Utilizatorii conectați vor fi deconectați.`)) return;
@@ -204,7 +211,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
       <nav className="workspace-nav" aria-label="Workspace">
         {navigation.map(item => {
           const Icon = item.icon;
-          return <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} type="button" onClick={()=>{setActivePage(item.id);setMobileOpen(false);}}>
+          return <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} type="button" onClick={()=>{setActivePage(item.id);setMachineFormOpen(false);setMobileOpen(false);}}>
             <Icon size={17}/><span>{item.label}</span>
           </button>;
         })}
@@ -241,11 +248,14 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
               page={activePage}
               machines={shownMachines}
               allMachines={machines}
+              machineFormOpen={machineFormOpen}
               members={members}
               sections={sections}
               role={role}
               busy={busy}
               results={actionResults}
+              onOpenMachineForm={openMachineForm}
+              onCloseMachineForm={()=>setMachineFormOpen(false)}
               onAction={runAction}
               onSaveMachine={saveMachine}
               onDeleteMachine={deleteMachine}
@@ -259,16 +269,17 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   </div>;
 }
 
-function PageContent({page,machines,allMachines,members,sections,role,busy,results,onAction,onSaveMachine,onDeleteMachine,onAddMember,onRemoveMember,onSaveSection,onRemoveSection}) {
+function PageContent({page,machines,allMachines,machineFormOpen,members,sections,role,busy,results,onOpenMachineForm,onCloseMachineForm,onAction,onSaveMachine,onDeleteMachine,onAddMember,onRemoveMember,onSaveSection,onRemoveSection}) {
   if (page === 'admin') return <AdminPanel
-    machines={allMachines} sections={sections} role={role} busy={busy}
+    machines={allMachines} sections={sections} role={role} busy={busy} machineFormOpen={machineFormOpen}
+    onOpenMachineForm={onOpenMachineForm} onCloseMachineForm={onCloseMachineForm}
     onSaveMachine={onSaveMachine} onDeleteMachine={onDeleteMachine}
     onSaveSection={onSaveSection} onRemoveSection={onRemoveSection}
   />;
   if (page === 'ranks') return <MemberPanel members={members} role={role} busy={busy} onAdd={onAddMember} onRemove={onRemoveMember}/>;
   if (page === 'ubuntu' || page === 'termux') return <MachineList
     machines={machines} platform={page} busy={busy} results={results}
-    onAction={onAction} onDelete={onDeleteMachine} canManage={role === 'owner' || role === 'co_owner'}
+    onAction={onAction} onDelete={onDeleteMachine} onOpenMachineForm={onOpenMachineForm} canManage={role === 'owner' || role === 'co_owner'}
   />;
   return <Overview machines={allMachines} members={members} sections={sections} results={results}/>;
 }
@@ -301,13 +312,67 @@ function Overview({machines,members,sections,results}) {
   </>;
 }
 
-function MachineList({machines,platform,busy,results,onAction,onDelete,canManage}) {
+function MachineList({machines,platform,busy,results,onAction,onDelete,onOpenMachineForm,canManage}) {
   return <section className="section-block">
     <div className="section-title"><div><span className="eyebrow">{platform === 'ubuntu' ? 'SERVER LINUX' : 'ANDROID LINUX ENVIRONMENT'}</span><h2>{platform === 'ubuntu' ? 'Ubuntu Linux' : 'Termux'} <span className="count-chip">{machines.length}</span></h2></div></div>
     <div className="info-banner"><CircleHelp size={17}/><p>Comenzile rulează numai prin agentul Minefory instalat pe mașina ta. Nu există terminal cu text liber; acțiunile sunt fixe și verificate.</p></div>
     {machines.length ? <div className="machine-grid">{machines.map(machine=><MachineCard key={machine.id} machine={machine} result={results[machine.id]} busy={busy} onAction={onAction} onDelete={onDelete} canManage={canManage}/>)}</div>
       : <div className="empty-state"><Server size={23}/><b>Niciun host {platform === 'ubuntu' ? 'Ubuntu' : 'Termux'}</b><span>Înregistrează o mașină din Admin Panel și instalează agentul pe host.</span></div>}
     <p className="subtle-note">Pentru Termux, restart serviciu cere pachetul <code>termux-services</code>. Reboot nu este disponibil din Termux.</p>
+    <HostConsole platform={platform} canManage={canManage} onOpenMachineForm={onOpenMachineForm}/>
+  </section>;
+}
+
+const hostResources = [
+  { name: 'Ubuntu Server', platform: 'ubuntu', description: 'Documentație oficială pentru instalare și administrare servere Ubuntu.', url: 'https://ubuntu.com/server/docs' },
+  { name: 'Termux', platform: 'termux', description: 'Site-ul oficial și informații despre instalarea Termux.', url: 'https://termux.dev/en/' },
+  { name: 'Termux Wiki', platform: 'termux', description: 'Ghiduri comunitare despre pachete, servicii și utilizare Termux.', url: 'https://wiki.termux.com/wiki/Main_Page' },
+  { name: 'Cloudflare Tunnel', platform: 'all', description: 'Documentație oficială pentru acces HTTPS către agentul local fără expunerea portului.', url: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/' },
+  { name: 'Minefory pe GitHub', platform: 'all', description: 'Codul agentului Minefory și instrucțiunile complete de instalare.', url: 'https://github.com/rotarimihai200964-bot/minefory' },
+  { name: 'Supabase Edge Functions', platform: 'all', description: 'Documentație pentru funcția securizată care transmite acțiunile către host.', url: 'https://supabase.com/docs/guides/functions' }
+];
+
+function hostCommands(platform) {
+  const isTermux = platform === 'termux';
+  return [
+    { label: '1. Instalează pachetele necesare', description: isTermux ? 'Instalează Python și Git în Termux.' : 'Instalează Python 3 și Git pe Ubuntu.', command: isTermux ? 'pkg update && pkg install -y python git' : 'sudo apt update && sudo apt install -y python3 git' },
+    { label: '2. Descarcă agentul Minefory', description: 'Clonează repository-ul oficial și intră în folderul proiectului.', command: 'git clone https://github.com/rotarimihai200964-bot/minefory.git && cd minefory' },
+    { label: '3. Generează un token privat', description: 'Păstrează tokenul doar pe host și în formularul Admin Panel. Nu îl publica și nu îl trimite nimănui.', command: isTermux ? 'python -c "import secrets; print(secrets.token_urlsafe(48))"' : 'python3 -c "import secrets; print(secrets.token_urlsafe(48))"' },
+    { label: '4. Pornește agentul', description: 'Înlocuiește TOKEN_GENERAT cu tokenul de mai sus. Agentul rămâne pornit în terminalul curent.', command: isTermux ? "export MINEFORY_AGENT_TOKEN='TOKEN_GENERAT'; export MINEFORY_PLATFORM=termux; python host-agent/agent.py" : "export MINEFORY_AGENT_TOKEN='TOKEN_GENERAT'; export MINEFORY_PLATFORM=ubuntu; export MINEFORY_SERVICE_NAME='minefory.service'; python3 host-agent/agent.py" },
+    ...(isTermux ? [{ label: 'Opțional: servicii Termux', description: 'Instalează termux-services doar dacă vrei să verifici/repornești un serviciu configurat.', command: 'pkg install termux-services' }] : [{ label: 'Status serviciu Ubuntu', description: 'Exemplu de verificare locală pentru serviciul configurat pe host.', command: 'systemctl status minefory.service --no-pager' }]),
+    { label: 'Resurse disc', description: 'Afișează spațiul folosit și disponibil pe host.', command: isTermux ? 'df -h "$PREFIX"' : 'df -h /' }
+  ];
+}
+
+function HostConsole({platform,canManage,onOpenMachineForm}) {
+  const [query, setQuery] = useState('');
+  const [copied, setCopied] = useState('');
+  const [copyError, setCopyError] = useState('');
+  const term = query.trim().toLocaleLowerCase();
+  const commands = hostCommands(platform).filter(item => !term || (item.label + ' ' + item.description + ' ' + item.command).toLocaleLowerCase().includes(term));
+  const resources = hostResources.filter(item => (item.platform === platform || item.platform === 'all') && (!term || (item.name + ' ' + item.description + ' ' + item.platform).toLocaleLowerCase().includes(term)));
+
+  async function copyCommand(item) {
+    try {
+      await navigator.clipboard.writeText(item.command);
+      setCopied(item.label); setCopyError('');
+      window.setTimeout(() => setCopied(current => current === item.label ? '' : current), 1800);
+    } catch { setCopyError('Nu s-a putut copia comanda. Selecteaz-o și copiaz-o manual.'); }
+  }
+
+  const webSearchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query.trim() + ' ' + (platform === 'termux' ? 'Termux' : 'Ubuntu') + ' host setup');
+  return <section className="host-console" aria-labelledby={platform + '-console-title'}>
+    <div className="host-console-heading"><div><span className="eyebrow">GHID DE CONFIGURARE</span><h2 id={platform + '-console-title'}><Terminal size={19}/> Consolă {platform === 'termux' ? 'Termux' : 'Ubuntu'}</h2><p>Comenzi verificate pentru configurarea hostului. Copiază-le și rulează-le doar pe mașina ta.</p></div>
+      <div className="host-console-actions">{canManage && <button className="primary-btn small-btn" type="button" onClick={onOpenMachineForm}><Plus size={14}/>Adaugă host</button>}<span className="console-badge"><i/> COMENZI LOCALE</span></div></div>
+    <label className="resource-search"><Search size={17}/><input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Caută comenzi, ghiduri sau site-uri..." aria-label="Caută comenzi și site-uri de ajutor"/></label>
+    {copyError && <p className="console-error" role="alert">{copyError}</p>}
+    <div className="console-columns"><div className="console-command-list"><div className="console-subheading"><b>Comenzi și scripturi de configurare</b><span>{commands.length}</span></div>
+      {commands.length ? commands.map(item=><article className="command-card" key={item.label}><div className="command-card-heading"><div><b>{item.label}</b><p>{item.description}</p></div><button className="icon-btn" type="button" aria-label={'Copiază: ' + item.label} onClick={()=>void copyCommand(item)}><Copy size={15}/></button></div><pre><code>{item.command}</code></pre>{copied === item.label && <span className="copy-feedback" role="status">Comandă copiată</span>}</article>) : <div className="empty-state compact-empty">Nu am găsit comenzi pentru „{query}”.</div>}
+    </div><div className="console-resource-list"><div className="console-subheading"><b>Site-uri și documentație</b><span>{resources.length}</span></div>
+      {resources.length ? resources.map(resource=><a className="resource-card" href={resource.url} key={resource.name} target="_blank" rel="noopener noreferrer"><span><b>{resource.name}</b><small>{resource.description}</small></span><ExternalLink size={15}/></a>) : <div className="empty-state compact-empty">Nu am găsit ghiduri potrivite.</div>}
+      {term && <a className="web-search-link" href={webSearchUrl} target="_blank" rel="noopener noreferrer"><Search size={14}/> Caută „{query.trim()}” pe web <ExternalLink size={13}/></a>}
+    </div></div>
+    <div className="info-banner console-safety-note"><ShieldCheck size={17}/><p>Minefory nu execută text introdus în această consolă. Comenzile sunt afișate pentru copiere manuală; folosește doar surse de încredere. Configurează un Cloudflare Tunnel către <code>http://127.0.0.1:8787</code>, apoi apasă <b>Adaugă host</b> și completează URL-ul HTTPS al tunelului, platforma și tokenul privat.</p></div>
   </section>;
 }
 
@@ -350,14 +415,13 @@ function ResultPanel({result}) {
   </div>;
 }
 
-function AdminPanel({machines,sections,role,busy,onSaveMachine,onDeleteMachine,onSaveSection,onRemoveSection}) {
-  const [showMachineForm,setShowMachineForm] = useState(false);
+function AdminPanel({machines,sections,role,busy,machineFormOpen,onOpenMachineForm,onCloseMachineForm,onSaveMachine,onDeleteMachine,onSaveSection,onRemoveSection}) {
   const [showSectionForm,setShowSectionForm] = useState(false);
   const canManage = role === 'owner' || role === 'co_owner';
   return <>
     <div className="admin-grid">
       <section className="panel-card">
-        <div className="section-title"><div><span className="eyebrow">HOSTURI</span><h2>Mașini conectate</h2></div>{canManage && <button className="primary-btn small-btn" type="button" onClick={()=>setShowMachineForm(true)}><Plus size={15}/>Adaugă host</button>}</div>
+        <div className="section-title"><div><span className="eyebrow">HOSTURI</span><h2>Mașini conectate</h2></div>{canManage && <button className="primary-btn small-btn" type="button" onClick={onOpenMachineForm}><Plus size={15}/>Adaugă host</button>}</div>
         <p className="panel-description">Endpointurile sunt păstrate în baza de date; tokenurile de agent sunt salvate exclusiv server-side.</p>
         {machines.length ? <div className="admin-list">{machines.map(machine=><div className="admin-list-row" key={machine.id}><div className={`machine-icon small ${machine.platform}`}><PlatformIcon platform={machine.platform}/></div><span><b>{machine.name}</b><small>{machine.platform === 'ubuntu' ? 'Ubuntu Linux' : 'Termux'}</small></span><button className="icon-btn icon-danger" type="button" aria-label={`Șterge ${machine.name}`} disabled={!!busy} onClick={()=>onDeleteMachine(machine)}><Trash2 size={14}/></button></div>)}</div>
           : <div className="empty-state compact-empty"><Server size={20}/><span>Adaugă primul tău host.</span></div>}
@@ -370,7 +434,7 @@ function AdminPanel({machines,sections,role,busy,onSaveMachine,onDeleteMachine,o
       </section>
     </div>
     <section className="section-block admin-warning"><ShieldCheck size={18}/><div><b>Comenzi cu allowlist</b><p>Nu se acceptă comenzi arbitrare. Agentul permite doar status, resurse, status/restart pentru serviciul configurat și reboot Ubuntu cu confirmare.</p></div></section>
-    {showMachineForm && <MachineForm busy={busy==='machine'} onClose={()=>setShowMachineForm(false)} onSave={async machine=>{if(await onSaveMachine(machine))setShowMachineForm(false);}}/>}
+    {machineFormOpen && <MachineForm busy={busy==='machine'} onClose={onCloseMachineForm} onSave={async machine=>{if(await onSaveMachine(machine))onCloseMachineForm();}}/>}
     {showSectionForm && <SectionForm busy={busy==='section'} onClose={()=>setShowSectionForm(false)} onSave={async section=>{if(await onSaveSection(section))setShowSectionForm(false);}}/>}
   </>;
 }
