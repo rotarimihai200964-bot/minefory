@@ -1,90 +1,103 @@
-# Minefory Host
+# Minefory Host Workspace
 
-The project has a React panel and a Node.js API that downloads Minecraft server JARs, stores each account's server files separately, and starts/stops Java server processes.
+Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and Termux hosts. It includes Owner/Co-owner roles, custom workspace sections, an Ubuntu/Termux host inventory, and a small host agent for explicitly allowlisted actions. It no longer opens or manages a Pterodactyl panel.
 
-## Requirements
+## What host actions are supported
 
-- Node.js 20 or newer
-- A Supabase project with Email authentication enabled
-- Java runtimes installed on the host for the versions you plan to use
+- Read host status and uptime.
+- Read CPU, memory, and disk usage.
+- Check the one service configured on a host.
+- Restart that configured service.
+- Reboot an Ubuntu host after an explicit confirmation.
 
-## Local setup
+There is no web terminal and no arbitrary command field. Termux reboot is not supported. Service restart and reboot require the narrowly scoped sudo permissions described below. Only install the agent on machines you own or are explicitly authorized to administer.
 
-1. Copy `.env.example` to `.env`.
-2. The provided `.env.example` is prefilled with this project's Supabase URL, publishable key, and administrator email. Use `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_ADMIN_EMAIL` for the frontend; use `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `ADMIN_EMAIL` for the API. Never use `SUPABASE_SECRET_KEY` or a `service_role` key.
-3. Keep `API_HOST=127.0.0.1` for local development. Set `ALLOWED_ORIGINS=http://localhost:5173`.
-4. Configure Java executable paths (for example `JAVA_21_PATH=C:\Program Files\Eclipse Adoptium\jdk-21\bin\java.exe`). The selected Java version is checked before starting a server.
-5. In Supabase, create the Owner account matching `ADMIN_EMAIL` / `VITE_ADMIN_EMAIL`. To allow sign-in without confirming the address, turn off **Confirm email** for the Email provider in Supabase Authentication settings. This is a Supabase project setting and cannot be changed by this app's publishable key.
-6. Public registration is not shown. Disable public signups in Supabase under **Authentication → Settings**. The Owner or a Co-owner can grant panel access to an email with an existing Supabase account; the API verifies that the account predates the access grant.
-7. Install dependencies and run the frontend and API in separate terminals:
+## Local frontend
 
-   ```sh
-   npm install
-   npm run api
-   npm run dev
+Requirements: Node.js 20+ and a Supabase project with Email/Password authentication enabled.
+
+1. Copy `.env.example` to `.env` if needed.
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env`. These are frontend configuration values; never put a Supabase secret/service-role key in the browser or Git.
+3. Run `npm install` and `npm run dev`.
+4. Open the local URL printed by Vite.
+
+`.env` is ignored by Git. Never upload it to GitHub.
+
+## Supabase setup
+
+1. In the Supabase SQL Editor, run [`supabase/migrations/202611070001_minefory_workspace.sql`](./supabase/migrations/202611070001_minefory_workspace.sql).
+2. Create the Owner account in Supabase Authentication, then run this SQL after replacing the email with that account's email:
+
+   ```sql
+   insert into public.minefory_members (email, role)
+   select lower(email), 'owner'
+   from auth.users
+   where lower(email) = lower('owner@example.com')
+   on conflict (email) do update
+     set role = 'owner'
+     where public.minefory_members.role = 'co_owner';
    ```
 
-Vite proxies `/api` to the local API. Server data and JARs are stored under `DATA_DIR` (default `data/`) and are excluded from Git.
-The administrator email is public configuration, not a password. Set or reset its password through Supabase; never put the password in `.env.example`, frontend code, or Git.
+3. Create each Co-owner account in Supabase Authentication. The Owner can then grant that account the `Co-owner` role from **Rankuri**. Public registration is not available in Minefory.
+4. In Cloudflare Pages, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the build and deploy again. Keep `.env` local; do not commit it.
+5. Deploy the Supabase Edge Function:
 
-### Run a Minecraft server for free on Windows
+   ```sh
+   supabase functions deploy host-action --project-ref YOUR_PROJECT_REF
+   ```
 
-Render Free does not provide enough memory, persistent storage, or public Minecraft TCP ports to host a playable Minecraft server. To run one without paying for hosting, the Windows PC must stay on while the server is online:
+   The function uses Supabase's server-side `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` environment values. The service-role key must remain server-side.
 
-1. Install Node.js LTS and Java 21 (Temurin). Make sure `node`, `npm`, and `java` are available in a new Command Prompt.
-2. Keep a private local `.env` in the project root. If it is missing, `start-minefory-local.bat` copies `.env.example` to `.env`; do not upload `.env` to GitHub.
-3. Run `start-minefory-local.bat`. It installs npm dependencies if needed, starts the API and panel locally, and opens `http://localhost:5173`. Sign in with the existing Supabase account and create a server there. Local server data is separate from Render's data.
-4. To let other people join, allow Java through Windows Firewall and forward the server's TCP port (normally `25565`) from the router to this PC. Set `MINECRAFT_HOST` in `.env` to the public address players should use, then restart the API. If the ISP uses CGNAT or blocks inbound connections, router port forwarding will not work.
+Row Level Security protects workspace data. Owner can add/remove Co-owners; Owner and Co-owner can manage hosts and custom sections. The machine-agent tokens are stored in a separate table that authenticated browser clients cannot read.
 
-The public Cloudflare Pages site continues to use its configured remote API; it cannot start a server running on this PC. Use the local panel URL above to manage the local server. The Render API health check does not confirm that Java is installed or that a Minecraft server can accept players.
+## Install a host agent
 
-### Team access and roles
+The agent listens only on `127.0.0.1:8787`. Use an HTTPS tunnel such as Cloudflare Tunnel to reach it; do not expose port 8787 directly to the Internet. Generate a unique token on each host:
 
-The API persists team access in `DATA_DIR/access-control.json`. The Owner is the Supabase account whose email matches `ADMIN_EMAIL`; its identity is fixed after its first sign-in and cannot be changed through team management.
+```sh
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
-- **Owner:** all panel and server permissions; the Owner account cannot be edited or removed by team management.
-- **Co-owner:** full panel and server access, including creating/deleting servers and managing team access.
-- **Developer:** can view, create, configure, start/stop servers, use the console, and manage files; cannot delete servers or manage team access.
-- **Member:** can access only assigned servers and the selected permissions: view, manage servers, console, files, and/or delete. Viewing assigned servers is required.
+Keep the token on the host and enter the same token when registering that machine in **Admin Panel**. The browser sends it to the authenticated Edge Function over HTTPS; the function stores it server-side and never returns it to the browser.
 
-Add team emails only after their Supabase accounts exist. Existing accounts must have been created before access is granted; a later-created account with the same address is rejected. Adding access does not create an account or send an invitation. The user signs in with their own Supabase credentials. Role checks and server scoping are enforced by the API, not only by hidden panel controls.
+### Ubuntu Linux
 
-The server creation and settings forms load current Minecraft release versions from Mojang and PaperMC. Creating a Paper server downloads the latest stable Paper build for the selected Minecraft version as `server.jar` and verifies its SHA-256 checksum. If `server.jar` is missing when a server is started, the API downloads it again. The panel selects the minimum Java version required by that game release, but that Java runtime must also be installed and configured on the API host.
+Install Python 3, then start `host-agent/agent.py` with these environment variables:
 
-## Remote deployment
+```sh
+export MINEFORY_AGENT_TOKEN='GENERATED_RANDOM_TOKEN'
+export MINEFORY_PLATFORM=ubuntu
+export MINEFORY_SERVICE_NAME='minefory.service'
+python3 host-agent/agent.py
+```
 
-- Put the API behind a reverse proxy with HTTPS. Keep the Node API bound to `127.0.0.1`; do not expose it directly to the public internet.
-- Set `ALLOWED_ORIGINS` to the exact HTTPS origin of the panel and set the frontend `VITE_API_URL` to the API's HTTPS origin at build time.
-- Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `DATA_DIR`, `MINECRAFT_HOST`, and Java paths on the API host. Keep `DATA_DIR` on a persistent volume: it stores access assignments, server metadata, JARs, worlds, and configuration files. Losing or replacing that volume loses those records and files. The publishable key can be used to validate Supabase sessions; never use a `SUPABASE_SECRET_KEY` or `service_role` key in the browser or API config.
-- Configure Supabase's Site URL and allowed redirect URLs for the deployed panel. Configure SMTP for confirmation and password-recovery mail.
-- Open the allocated Minecraft TCP port range (25565-25664) in the host firewall and set `MINECRAFT_HOST` to the address players should use.
+For service restart and reboot, run the agent as a dedicated unprivileged user and grant only these exact commands with `sudo visudo -f /etc/sudoers.d/minefory-agent` (replace the account and service name):
 
-### Node.js hosting panel / Egg
+```text
+minefory-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart minefory.service, /usr/sbin/reboot
+```
 
-The `.env` file does not install or start the API, and you do not need to upload it to the host. Upload the project files to the Node.js service's working directory (the directory containing `package.json`), install dependencies with `npm install`, and use `npm run api` as its startup command. In the hosting panel, add the API settings as environment variables for the Node.js service; the API reads these directly from `process.env`. Set `DATA_DIR` to the persistent volume's mount path (`databazesecret` in this setup); if the panel expects an absolute container path, use the absolute mount path shown in its volume settings. A local `.env` is only for local development.
+Set the sudoers file permissions to `0440`. Do not run the agent as root and do not grant broad sudo permissions.
 
-Set the Node service's `HOST` to `0.0.0.0` and `PORT` to the port allocated by the hosting panel. These standard variables take precedence over `API_HOST` and `API_PORT`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `ALLOWED_ORIGINS` (the exact HTTPS origin of the panel UI), `DATA_DIR`, `MINECRAFT_HOST`, and the required Java paths in the Node service's environment settings. When building the frontend, set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_ADMIN_EMAIL`, and `VITE_API_URL` to the corresponding project, admin email, and API values. Only the publishable key and admin email belong in frontend build settings; never put a Supabase secret/service-role key in the frontend or Git. The example file's localhost values are for local development and must be changed for a remote deployment. The browser cannot call a plain HTTP API from an HTTPS panel; if the host does not provide HTTPS for the API, use a reverse proxy with TLS or host the API on a VPS you control.
+### Termux
 
-The API stores server metadata, JARs, worlds, and server files under `DATA_DIR`. Keep that directory mounted on persistent storage and do not delete or replace the volume when redeploying. Account emails and passwords are handled by Supabase Auth; passwords are never saved in this server data directory or stored by the API.
+Install `python` and `termux-services`, then start the agent:
 
-Keep the API in its own persistent Node.js service, not inside a Minecraft server's Java startup process. The API starts Java child processes itself and needs the selected Java executable plus allocated Minecraft ports. Render Free web services do not provide persistent disks or public arbitrary Minecraft TCP ports; they are not suitable for hosting reachable Minecraft servers or keeping their files across restarts. Use a game-server host or a VPS that supports persistent storage and inbound Minecraft TCP ports.
+```sh
+pkg install python termux-services
+export MINEFORY_AGENT_TOKEN='GENERATED_RANDOM_TOKEN'
+export MINEFORY_PLATFORM=termux
+export MINEFORY_SERVICE_NAME='your-allowlisted-service'
+python host-agent/agent.py
+```
 
-## API
-Team server operations use the Owner's host storage, while Members can reach only their explicitly assigned server IDs. API authorization enforces these rules regardless of what the frontend displays.
+Termux supports status and resource checks. Service status/restart are available when `termux-services` is installed and a service name is configured. Reboot is intentionally unavailable.
 
-All server endpoints except `/api/health` require `Authorization: Bearer <Supabase access token>`. The API validates the token with Supabase and scopes server IDs and files to the authenticated user.
+When adding the host in Minefory, enter the HTTPS address of its tunnel, its platform, the configured service name (required for Ubuntu; optional for Termux), and the same agent token. The endpoint must be reachable from Supabase Edge Functions.
 
-- `GET /api/servers` — list the caller's servers
-- `GET /api/access/me` — resolve the caller's effective role and permissions
-- `GET`, `POST /api/access/members` and `PATCH`, `DELETE /api/access/members/:email` — manage team access (Owner/Co-owner only)
-- `POST /api/servers` — download and checksum-verify the selected official Vanilla or Paper `server.jar`
-- `GET`, `PATCH`, `DELETE /api/servers/:id` — inspect, configure (while stopped), or delete a server
-- `POST /api/servers/:id/start`, `/stop`, `/restart`, `/command` — manage the Java process
-- `GET /api/servers/:id/logs` — read process output; `DELETE` clears it
-- `GET /api/servers/:id/files` and `/files/:path` — list/read safe text configuration files; `POST` creates and `PUT` edits files
+## Cloudflare Pages build
 
-Starting a server requires the user to accept the Minecraft EULA in its settings and the selected Java runtime to be installed. Vanilla JARs come from Mojang's official manifest; Paper JARs come from PaperMC's v3 API. Both downloads are checksum-verified.
+- Build command: `npm run build`
+- Build output directory: `dist`
 
-The API limits each account to 5 servers and 32 GB of configured RAM across those servers.
-
-The plugin catalog is still a UI selection only; it does not download third-party plugin JARs. This API manages Minecraft server files/processes but does not replace a production isolation layer such as Pterodactyl/Wings or containers. Run it only on a host you control, use HTTPS remotely, and keep server data backed up.
+The dashboard frontend and Supabase Edge Function are separate deployments. A successful Pages build does not deploy the Edge Function or install host agents.
