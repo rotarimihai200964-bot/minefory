@@ -1,34 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ArrowRight, Check, ExternalLink, Eye, EyeOff, KeyRound, LockKeyhole,
-  LogOut, Mail, PanelTop, Save, Server, ShieldCheck, X, Zap
+  ArrowRight, Eye, EyeOff, KeyRound, LockKeyhole, Mail, Server,
+  ShieldCheck, Zap
 } from 'lucide-react';
-import { adminEmail, supabase, supabaseConfigMissing } from './supabase.js';
+import Dashboard from './Dashboard.jsx';
+import { supabase, supabaseConfigMissing } from './supabase.js';
 
 const normalizeEmail = email => email.trim().toLowerCase();
-const panelUrlStorageKey = 'minefory.pterodactyl.url';
-
-function normalizePanelUrl(value) {
-  const input = value.trim();
-  if (!input) throw new Error('Introdu URL-ul panelului Pterodactyl.');
-
-  const withProtocol = /^https?:\/\//i.test(input)
-    ? input
-    : `${/^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(input) ? 'http' : 'https'}://${input}`;
-  let url;
-  try {
-    url = new URL(withProtocol);
-  } catch {
-    throw new Error('Introdu un URL valid, de exemplu http://localhost sau https://panel.exemplu.ro.');
-  }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) {
-    throw new Error('URL-ul trebuie să folosească HTTP sau HTTPS și să nu conțină credențiale ori fragment.');
-  }
-  return url.toString().replace(/\/+$/, '');
-}
 
 export default function App() {
   const [authUser, setAuthUser] = useState(null);
+  const [memberRole, setMemberRole] = useState('');
+  const [memberLoading, setMemberLoading] = useState(false);
+  const [memberError, setMemberError] = useState('');
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
@@ -37,24 +21,6 @@ export default function App() {
   const [passwordUpdateError, setPasswordUpdateError] = useState('');
   const [authError, setAuthError] = useState('');
   const [authMessage, setAuthMessage] = useState('');
-  const [panelUrl, setPanelUrl] = useState('http://localhost');
-  const [panelUrlDraft, setPanelUrlDraft] = useState('http://localhost');
-  const [panelError, setPanelError] = useState('');
-  const [panelSaved, setPanelSaved] = useState(false);
-  const [showMobile, setShowMobile] = useState(false);
-
-  useEffect(() => {
-    try {
-      const savedUrl = window.localStorage.getItem(panelUrlStorageKey);
-      if (savedUrl) {
-        const normalizedUrl = normalizePanelUrl(savedUrl);
-        setPanelUrl(normalizedUrl);
-        setPanelUrlDraft(normalizedUrl);
-      }
-    } catch (error) {
-      setPanelError(error instanceof Error ? `Adresa salvată nu a putut fi citită: ${error.message}` : 'Adresa salvată nu a putut fi citită.');
-    }
-  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -67,13 +33,7 @@ export default function App() {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        const user = data.session?.user ?? null;
-        if (user && normalizeEmail(user.email || '') !== adminEmail) {
-          await supabase.auth.signOut();
-          if (active) setAuthError('Acest cont nu este administratorul configurat pentru Minefory.');
-          return;
-        }
-        if (active) setAuthUser(user);
+        if (active) setAuthUser(data.session?.user ?? null);
       } catch (error) {
         if (active) setAuthError(error instanceof Error ? `Sesiunea nu a putut fi verificată: ${error.message}` : 'Sesiunea nu a putut fi verificată.');
       } finally {
@@ -83,30 +43,10 @@ export default function App() {
     void loadSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      const user = session?.user ?? null;
-      if (user && normalizeEmail(user.email || '') !== adminEmail) {
-        setAuthUser(null);
-        setAuthError('Acest cont nu este administratorul configurat pentru Minefory.');
-        setAuthLoading(false);
-        window.setTimeout(async () => {
-          try {
-            const { data, error } = await supabase.auth.getSession();
-            if (error) throw error;
-            if (data.session?.user && normalizeEmail(data.session.user.email || '') !== adminEmail) {
-              const { error: signOutError } = await supabase.auth.signOut();
-              if (signOutError) throw signOutError;
-            }
-            setAuthError('Acest cont nu este administratorul configurat pentru Minefory.');
-          } catch (error) {
-            setAuthError(`Deconectarea contului neautorizat a eșuat: ${error instanceof Error ? error.message : 'eroare necunoscută'}`);
-          }
-        }, 0);
-        return;
-      }
-      setAuthUser(user);
+      setAuthUser(session?.user ?? null);
       setAuthLoading(false);
       if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
-      if (!user) setPasswordRecovery(false);
+      if (!session) setPasswordRecovery(false);
       setAuthError('');
       setAuthMessage('');
     });
@@ -116,6 +56,37 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!authUser?.email || !supabase) {
+      setMemberRole('');
+      setMemberError('');
+      setMemberLoading(false);
+      return undefined;
+    }
+
+    setMemberRole('');
+    setMemberLoading(true);
+    setMemberError('');
+    void supabase.from('minefory_members')
+      .select('role')
+      .eq('email', normalizeEmail(authUser.email))
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!data) throw new Error('Acest cont nu este membru autorizat Minefory. Cere Owner-ului să te adauge.');
+        if (active) setMemberRole(data.role);
+      })
+      .catch(error => {
+        if (active) setMemberError(error instanceof Error ? error.message : 'Rolul contului nu a putut fi verificat.');
+      })
+      .finally(() => {
+        if (active) setMemberLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [authUser]);
 
   async function authenticate({ email, password }) {
     if (!supabase) {
@@ -131,12 +102,6 @@ export default function App() {
         password
       });
       if (error) throw error;
-      if (normalizeEmail(data.user.email || '') !== adminEmail) {
-        const { error: signOutError } = await supabase.auth.signOut();
-        if (signOutError) throw new Error(`Acest cont nu este administratorul configurat, iar deconectarea a eșuat: ${signOutError.message}`);
-        setAuthError('Acest cont nu este administratorul configurat pentru Minefory.');
-        return;
-      }
       setAuthUser(data.user);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Autentificarea a eșuat. Încearcă din nou.');
@@ -151,8 +116,9 @@ export default function App() {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       setAuthUser(null);
+      setAuthError('');
     } catch (error) {
-      setPanelError(`Deconectarea a eșuat: ${error instanceof Error ? error.message : 'eroare necunoscută'}`);
+      setAuthError(`Deconectarea a eșuat: ${error instanceof Error ? error.message : 'eroare necunoscută'}`);
     }
   }
 
@@ -161,10 +127,6 @@ export default function App() {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) {
       setAuthError('Introdu adresa de e-mail pentru a primi linkul de resetare.');
-      return;
-    }
-    if (normalizedEmail !== adminEmail) {
-      setAuthError('Introdu adresa administratorului configurat pentru Minefory.');
       return;
     }
     setResetBusy(true);
@@ -199,21 +161,6 @@ export default function App() {
     }
   }
 
-  function savePanelUrl(event) {
-    event.preventDefault();
-    setPanelError('');
-    setPanelSaved(false);
-    try {
-      const normalizedUrl = normalizePanelUrl(panelUrlDraft);
-      window.localStorage.setItem(panelUrlStorageKey, normalizedUrl);
-      setPanelUrl(normalizedUrl);
-      setPanelUrlDraft(normalizedUrl);
-      setPanelSaved(true);
-    } catch (error) {
-      setPanelError(error instanceof Error ? error.message : 'Adresa panelului nu a putut fi salvată.');
-    }
-  }
-
   if (authLoading) {
     return <div className="auth-loading"><div className="welcome-mark"><Zap size={24} fill="currentColor"/></div><span>Se verifică sesiunea...</span></div>;
   }
@@ -231,82 +178,9 @@ export default function App() {
       onReset={sendPasswordReset}
     />;
   }
-
-  return <div className={`app-shell ${showMobile ? 'mobile-nav-open' : ''}`}>
-    <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-mark"><Zap size={21} fill="currentColor"/></div>
-        <div><b>MINEFORY</b><span>PTERODACTYL PANEL</span></div>
-        <button className="mobile-close" type="button" aria-label="Închide meniul" onClick={()=>setShowMobile(false)}><X size={18}/></button>
-      </div>
-      <div className="nav-label">WORKSPACE</div>
-      <div className="nav-item active"><PanelTop size={17}/> Panel Pterodactyl</div>
-      <div className="sidebar-bottom">
-        <div className="help-card">
-          <ShieldCheck size={18}/>
-          <b>Acces administrator</b>
-          <p>Adresa panelului este salvată doar în acest browser.</p>
-        </div>
-        <div className="profile">
-          <div className="profile-avatar">{(authUser.email || 'M').slice(0, 1).toUpperCase()}</div>
-          <div className="profile-info"><b>{authUser.email}</b><small>Administrator</small></div>
-          <button className="logout-btn" type="button" title="Deconectare" aria-label="Deconectare" onClick={signOut}><LogOut size={16}/></button>
-        </div>
-      </div>
-    </aside>
-    {showMobile && <button className="mobile-scrim" type="button" aria-label="Închide meniul" onClick={()=>setShowMobile(false)}/>}
-
-    <main className="main">
-      <header className="topbar">
-        <div className="top-left">
-          <button className="mobile-menu" type="button" aria-label="Deschide meniul" onClick={()=>setShowMobile(true)}><PanelTop size={19}/></button>
-          <span className="crumb">Minefory</span><span className="slash">/</span><b>Pterodactyl</b>
-        </div>
-        <span className="system-pill"><i/> Administrator conectat</span>
-      </header>
-      <section className="content">
-        <div className="page-heading">
-          <div><div className="eyebrow">HOSTING CONTROL</div><h1>Panel Pterodactyl</h1><p>Configurează adresa panelului și deschide interfața Pterodactyl.</p></div>
-        </div>
-        <section className="ptero-card">
-          <div className="ptero-icon"><PanelTop size={24}/></div>
-          <div className="ptero-copy">
-            <span className="ptero-status"><i/> GATA DE CONECTARE</span>
-            <h2>Conectează panelul tău</h2>
-            <p>Introdu adresa instanței Pterodactyl. Pentru o instalare locală, încearcă <code>http://localhost</code> sau adaugă portul configurat, de exemplu <code>http://localhost:8080</code>.</p>
-          </div>
-          <form className="panel-url-form" onSubmit={savePanelUrl}>
-            <label htmlFor="pterodactyl-url">URL Pterodactyl</label>
-            <div className="panel-url-input">
-              <PanelTop size={17}/>
-              <input
-                id="pterodactyl-url"
-                type="text"
-                inputMode="url"
-                autoComplete="url"
-                placeholder="http://localhost"
-                value={panelUrlDraft}
-                onChange={event=>{setPanelUrlDraft(event.target.value);setPanelSaved(false);}}
-              />
-              <button type="submit" className="save-url-btn"><Save size={15}/> Salvează</button>
-            </div>
-            {panelError && <p className="panel-error" role="alert">{panelError}</p>}
-            {panelSaved && <p className="panel-success" role="status"><Check size={14}/> Adresa panelului a fost salvată.</p>}
-          </form>
-          <div className="ptero-actions">
-            <a className="primary-btn ptero-open-btn" href={panelUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink size={16}/> Intră în Pterodactyl
-            </a>
-            <span>Se va deschide într-o filă nouă.</span>
-          </div>
-        </section>
-        <div className="ptero-note">
-          <ShieldCheck size={17}/>
-          <p><b>Important:</b> Minefory doar deschide panelul indicat; nu instalează Pterodactyl și nu transmite parole sau chei API. Panelul trebuie instalat și pornit separat. Adresa poate fi <code>http://localhost</code> dacă serviciul local o folosește.</p>
-        </div>
-      </section>
-    </main>
-  </div>;
+  if (memberLoading) return <div className="auth-loading"><div className="welcome-mark"><Zap size={24} fill="currentColor"/></div><span>Se verifică rolul...</span></div>;
+  if (!memberRole) return <main className="login-screen"><section className="login-card"><div className="eyebrow">ACCES RESTRICȚIONAT</div><h1>Nu ai acces la workspace</h1><p className="login-subtitle">{memberError || 'Rolul contului nu a putut fi verificat.'}</p><button className="login-submit" type="button" onClick={signOut}>Deconectare</button></section></main>;
+  return <Dashboard authUser={authUser} role={memberRole} globalError={authError} onSignOut={signOut}/>;
 }
 
 function ResetPassword({busy, error, onSubmit}) {
@@ -362,10 +236,10 @@ function Login({error, message, busy, resetBusy, configured, onSubmit, onReset})
     <div className="login-glow login-glow-one"/><div className="login-glow login-glow-two"/>
     <section className="login-card">
       <div className="login-emblem"><Server size={23}/><span/></div>
-      <div className="eyebrow">ACCES ADMINISTRATOR</div>
-      <h1>Intră în panelul tău</h1>
-      <p className="login-subtitle">Autentificare securizată pentru contul administrator Minefory.</p>
-      {!configured && <div className="auth-config-warning"><ShieldCheck size={17}/><span><b>Configurarea autentificării admin lipsește.</b> Verifică URL-ul, cheia publică și VITE_ADMIN_EMAIL în setările locale.</span></div>}
+      <div className="eyebrow">ACCES MINEFORY</div>
+      <h1>Intră în workspace</h1>
+      <p className="login-subtitle">Autentificare securizată pentru membrii autorizați Minefory.</p>
+      {!configured && <div className="auth-config-warning"><ShieldCheck size={17}/><span><b>Configurarea Supabase lipsește.</b> Verifică VITE_SUPABASE_URL și VITE_SUPABASE_PUBLISHABLE_KEY în setările locale.</span></div>}
       <form className="login-form" onSubmit={handleSubmit}>
         <label htmlFor="login-email">Adresă de e-mail</label>
         <div className="login-input-wrap"><Mail size={17}/><input id="login-email" type="email" autoComplete="username" value={email} onChange={event=>setEmail(event.target.value)} required disabled={!configured || busy}/></div>
@@ -375,7 +249,7 @@ function Login({error, message, busy, resetBusy, configured, onSubmit, onReset})
       </form>
       {error && <div className="login-error auth-response" role="alert">{error}</div>}
       {message && <div className="auth-success" role="status"><Mail size={16}/><span>{message}</span></div>}
-      <div className="login-demo"><KeyRound size={15}/><span><b>Administrator</b> · Autentificarea publică nu este disponibilă.</span></div>
+      <div className="login-demo"><KeyRound size={15}/><span><b>Acces privat</b> · Cere Owner-ului să îți creeze contul și să îți acorde rolul.</span></div>
     </section>
   </main>;
 }
