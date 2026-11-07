@@ -271,7 +271,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
 
 function PageContent({page,machines,allMachines,machineFormOpen,machineFormPlatform,members,sections,role,busy,results,onOpenMachineForm,onCloseMachineForm,onAction,onSaveMachine,onDeleteMachine,onAddMember,onRemoveMember,onSaveSection,onRemoveSection}) {
   if (page === 'admin') return <AdminPanel
-    machines={allMachines} sections={sections} role={role} busy={busy} machineFormOpen={machineFormOpen}
+    machines={allMachines} sections={sections} role={role} busy={busy} machineFormOpen={machineFormOpen} machineFormPlatform={machineFormPlatform}
     onOpenMachineForm={onOpenMachineForm} onCloseMachineForm={onCloseMachineForm}
     onSaveMachine={onSaveMachine} onDeleteMachine={onDeleteMachine}
     onSaveSection={onSaveSection} onRemoveSection={onRemoveSection}
@@ -315,11 +315,11 @@ function Overview({machines,members,sections,results}) {
 function MachineList({machines,platform,busy,results,role,machineFormOpen,machineFormPlatform,onCloseMachineForm,onSaveMachine,onAction,onDelete,onOpenMachineForm,canManage}) {
   return <section className="section-block">
     <div className="section-title"><div><span className="eyebrow">{platform === 'ubuntu' ? 'SERVER LINUX' : 'ANDROID LINUX ENVIRONMENT'}</span><h2>{platform === 'ubuntu' ? 'Ubuntu Linux' : 'Termux'} <span className="count-chip">{machines.length}</span></h2></div></div>
-    <div className="info-banner"><CircleHelp size={17}/><p>Comenzile rulează numai prin agentul Minefory instalat pe mașina ta. Nu există terminal cu text liber; acțiunile sunt fixe și verificate.</p></div>
+    <HostConsole platform={platform} canManage={canManage} onOpenMachineForm={()=>onOpenMachineForm(platform)}/>     <div className="info-banner"><CircleHelp size={17}/><p>Folosește consola de instalare de mai sus: copiază comenzile în Termux/Ubuntu, pornește agentul pe host, apoi apasă <b>Adaugă host</b>. Comenzile nu se execută din browser.</p></div>
     {machines.length ? <div className="machine-grid">{machines.map(machine=><MachineCard key={machine.id} machine={machine} result={results[machine.id]} busy={busy} onAction={onAction} onDelete={onDelete} canManage={canManage}/>)}</div>
       : <div className="empty-state"><Server size={23}/><b>Niciun host {platform === 'ubuntu' ? 'Ubuntu' : 'Termux'}</b><span>{role === 'termux_member' ? 'Folosește butonul „Adaugă host Termux” de mai sus după instalarea agentului.' : 'Înregistrează o mașină din Admin Panel și instalează agentul pe host.'}</span></div>}
     {role === 'termux_member' && machineFormOpen && <MachineForm busy={busy==='machine'} initialPlatform={machineFormPlatform} termuxOnly onClose={onCloseMachineForm} onSave={async machine=>{if(await onSaveMachine(machine))onCloseMachineForm();}}/>}<p className="subtle-note">Pentru Termux, restart serviciu cere pachetul <code>termux-services</code>. Reboot nu este disponibil din Termux.</p>
-    <HostConsole platform={platform} canManage={canManage} onOpenMachineForm={()=>onOpenMachineForm(platform)}/>
+
   </section>;
 }
 
@@ -527,7 +527,7 @@ function MemberPanel({members,role,busy,onAdd,onRemove}) {
     </section>}
     <section className="section-block">
       <div className="section-title"><div><span className="eyebrow">ECHIPĂ</span><h2>Membri și rankuri</h2></div><span className="count-chip">{members.length}</span></div>
-      <div className="member-list">{members.map(member=><div className="member-row" key={member.email}><div className="profile-avatar">{member.email.slice(0,1).toUpperCase()}</div><div className="member-info"><b>{member.email}</b><small>{roleLabel(member.role)}</small></div><span className={`rank-badge ${member.role}`}>{roleLabel(member.role)}</span>{isOwner && member.role !== 'owner' && <button className="icon-btn icon-danger" type="button" aria-label={`Elimină ${member.email}`} disabled={!!busy} onClick={()=>onRemove(member.email)}><Trash2 size={15}/></button>}</div>)}</div>
+      <div className="member-list">{members.map(member=><div className="member-row" key={member.email}><div className="profile-avatar">{member.email.slice(0,1).toUpperCase()}</div><div className="member-info"><b>{member.email}</b><small>{roleLabel(member.role)}</small></div><span className={`rank-badge ${member.role}`}>{roleBadge(member.role)}</span>{isOwner && member.role !== 'owner' && <button className="icon-btn icon-danger" type="button" aria-label={`Elimină ${member.email}`} disabled={!!busy} onClick={()=>onRemove(member.email)}><Trash2 size={15}/></button>}</div>)}</div>
     </section>
   </>;
 }
