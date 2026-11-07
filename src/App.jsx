@@ -10,7 +10,6 @@ import {
 import { adminEmail, supabase, supabaseConfigMissing } from './supabase.js';
 import { apiRequest, checkApiHealth } from './api.js';
 
-const minecraftVersions = ['1.21.8', '1.21.7', '1.21.6', '1.21.5', '1.21.4', '1.21.3', '1.21.1', '1.20.6', '1.20.4', '1.20.2', '1.19.4', '1.18.2', '1.16.5', '1.12.2', '1.8.8'];
 const javaVersions = ['Java 25', 'Java 21', 'Java 17', 'Java 11', 'Java 8'];
 const normalizeEmail = email => email.trim().toLowerCase();
 const pluginCatalog = [
@@ -59,7 +58,12 @@ function App() {
   const [showCreate, setShowCreate] = useState(false);
   const [showMobile, setShowMobile] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newVersion, setNewVersion] = useState('1.21.8');
+  const [newVersion, setNewVersion] = useState('');
+  const [newSoftware, setNewSoftware] = useState('Paper');
+  const [newJavaVersion, setNewJavaVersion] = useState('Java 21');
+  const [newVersionOptions, setNewVersionOptions] = useState([]);
+  const [newVersionsLoading, setNewVersionsLoading] = useState(false);
+  const [newVersionsError, setNewVersionsError] = useState('');
   const [toast, setToast] = useState('');
   const [consoleInput, setConsoleInput] = useState('');
   const [logs, setLogs] = useState([]);
@@ -68,6 +72,35 @@ function App() {
   const [accessProfile, setAccessProfile] = useState(null);
   const [accessError, setAccessError] = useState('');
   const [accessCheckKey, setAccessCheckKey] = useState(0);
+
+  useEffect(() => {
+    if (!showCreate || !authUser) return undefined;
+    let active = true;
+    setNewVersionsLoading(true);
+    setNewVersionsError('');
+    apiRequest(`/versions?software=${encodeURIComponent(newSoftware)}`)
+      .then(({ versions, defaultVersion }) => {
+        if (!Array.isArray(versions) || versions.some(version => !version || typeof version.id !== 'string' || typeof version.javaVersion !== 'string')) {
+          throw new Error('API-ul nu a returnat lista versiunilor de joc.');
+        }
+        if (active) {
+          setNewVersionOptions(versions);
+          setNewVersion(current => versions.some(version => version.id === current) ? current : defaultVersion || '');
+        }
+      })
+      .catch(error => {
+        if (active) setNewVersionsError(error instanceof Error ? error.message : 'Versiunile nu au putut fi încărcate.');
+      })
+      .finally(() => {
+        if (active) setNewVersionsLoading(false);
+      });
+    return () => { active = false; };
+  }, [showCreate, newSoftware, authUser?.id]);
+
+  useEffect(() => {
+    const selectedVersion = newVersionOptions.find(version => version.id === newVersion);
+    if (selectedVersion) setNewJavaVersion(selectedVersion.javaVersion);
+  }, [newVersionOptions, newVersion]);
 
   useEffect(() => {
     if (!supabase) {
@@ -338,10 +371,10 @@ function App() {
     if (!newName.trim()) return;
     setServerCreating(true);
     try {
-      const { server } = await apiRequest('/servers', { method: 'POST', body: { name: newName.trim(), version: newVersion, software: 'Paper', javaVersion: 'Java 21', ram: 2 } });
+      const { server } = await apiRequest('/servers', { method: 'POST', body: { name: newName.trim(), version: newVersion, software: newSoftware, javaVersion: newJavaVersion, ram: 2 } });
       setServers(prev => [...prev, server]);
       setSelected(server.id); setNewName(''); setShowCreate(false); setPage('Servers');
-      setToast(`server.jar ${server.version} a fost descărcat și verificat pentru ${server.name}.`);
+      setToast(`${server.software} ${server.version} a fost instalat și verificat pentru ${server.name}.`);
     } catch (error) {
       setToast(`Serverul nu a putut fi instalat: ${error.message}`);
     } finally {
@@ -434,7 +467,7 @@ function App() {
         <footer>© 2026 <b>Minefory Host</b> · Serverele și fișierele sunt gestionate de API-ul hostului.</footer>
       </div>
     </main>
-    {showCreate && <div className="modal-backdrop" onClick={()=>!serverCreating&&setShowCreate(false)}><form className="modal" onSubmit={createServer} onClick={e=>e.stopPropagation()}><div className="modal-head"><div><div className="eyebrow">CONFIGURARE</div><h2>Creează un server</h2><p>Descarcă server.jar și pregătește serverul pe host.</p></div><button type="button" className="icon-button" disabled={serverCreating} onClick={()=>setShowCreate(false)}><X/></button></div><label>Numele serverului<input autoFocus value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Ex: Survival SMP" required disabled={serverCreating}/></label><label>Versiune Minecraft<select value={newVersion} onChange={e=>setNewVersion(e.target.value)} disabled={serverCreating}>{minecraftVersions.map(version=><option key={version}>{version}</option>)}</select></label><div className="modal-note"><Zap size={16}/> JAR-ul oficial Paper va fi descărcat și verificat pe host. Acceptă EULA în setări înainte de pornire.</div><div className="modal-actions"><button type="button" className="small-btn" disabled={serverCreating} onClick={()=>setShowCreate(false)}>Anulează</button><button className="primary-btn" type="submit" disabled={serverCreating}><Plus size={16}/>{serverCreating?' Se instalează...':' Creează server'}</button></div></form></div>}
+    {showCreate && <div className="modal-backdrop" onClick={()=>!serverCreating&&setShowCreate(false)}><form className="modal" onSubmit={createServer} onClick={e=>e.stopPropagation()}><div className="modal-head"><div><div className="eyebrow">CONFIGURARE</div><h2>Creează un server</h2><p>Instalează automat server.jar pentru software-ul și versiunea aleasă.</p></div><button type="button" className="icon-button" disabled={serverCreating} onClick={()=>setShowCreate(false)}><X/></button></div><label>Numele serverului<input autoFocus value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Ex: Survival SMP" required disabled={serverCreating}/></label><label>Software server<select value={newSoftware} onChange={e=>{setNewSoftware(e.target.value);setNewVersion('');}} disabled={serverCreating}><option value="Paper">PaperMC (pluginuri)</option><option value="Vanilla">Vanilla oficial</option></select></label><label>Versiune Minecraft<select value={newVersion} onChange={e=>setNewVersion(e.target.value)} disabled={serverCreating || newVersionsLoading || newVersionOptions.length===0} required>{newVersionsLoading ? <option value="">Se încarcă versiunile...</option> : newVersionOptions.map(version=><option key={version.id} value={version.id}>{version.id} · necesită {version.javaVersion}+</option>)}</select></label><label>Java necesar<input value={newJavaVersion} readOnly aria-label="Versiune Java necesară" /></label>{newVersionsError && <div className="login-error" role="alert">{newVersionsError}</div>}<div className="modal-note"><Zap size={16}/> La creare se descarcă JAR-ul și se verifică integritatea lui. Pentru pornire trebuie să fie configurată versiunea Java indicată și să accepți EULA în setările serverului.</div><div className="modal-actions"><button type="button" className="small-btn" disabled={serverCreating} onClick={()=>setShowCreate(false)}>Anulează</button><button className="primary-btn" type="submit" disabled={serverCreating || newVersionsLoading || newVersionOptions.length===0 || Boolean(newVersionsError)}><Plus size={16}/>{serverCreating?' Se instalează...':' Creează server'}</button></div></form></div>}
     {serverToDelete && <div className="modal-backdrop" onClick={()=>setServerToDelete(null)}><div className="modal delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title" onClick={e=>e.stopPropagation()}><div className="delete-icon"><Trash2 size={20}/></div><h2 id="delete-title">Ștergi serverul?</h2><p>Serverul <b>{serverToDelete.name}</b> va fi eliminat din lista ta. Acțiunea nu poate fi anulată.</p><div className="modal-actions"><button className="small-btn" onClick={()=>setServerToDelete(null)}>Anulează</button><button className="danger-btn" onClick={deleteServer}><Trash2 size={15}/> Șterge serverul</button></div></div></div>}
     {welcomeServer && <div className="welcome-overlay" role="status" aria-live="polite"><div className="welcome-content"><div className="welcome-mark"><Zap size={25} fill="currentColor"/></div><span className="eyebrow">MINEFORY HOST</span><h2>Bun venit pe Minefory</h2><p>Se deschide serverul <b>{welcomeServer}</b></p><div className="welcome-loader"><i/></div></div></div>}
     {toast && <div className="toast"><span>✓</span>{toast}</div>}
@@ -725,6 +758,8 @@ function ServerDetail({server,logs,setLogs,setServers,consoleInput,setConsoleInp
   const [maxPlayers, setMaxPlayers] = useState(server.maxPlayers || '20');
   const [motd, setMotd] = useState(server.motd || 'Minefory Server');
   const [eulaAccepted, setEulaAccepted] = useState(Boolean(server.eulaAccepted));
+  const [versionOptions, setVersionOptions] = useState([{ id: server.version, javaVersion: server.javaVersion || 'Java 21' }]);
+  const [versionOptionsError, setVersionOptionsError] = useState('');
   const [files, setFiles] = useState(() => normalizeServerFiles(server.files));
   const [currentFolder, setCurrentFolder] = useState('');
   const [openFile, setOpenFile] = useState('');
@@ -755,6 +790,28 @@ function ServerDetail({server,logs,setLogs,setServers,consoleInput,setConsoleInp
       .catch(error => { if (active) onToast(`Fișierele nu au putut fi încărcate: ${error.message}`); });
     return () => { active = false; };
   }, [tab, server.id, onToast]);
+  useEffect(() => {
+    if (tab !== 'Settings') return undefined;
+    let active = true;
+    setVersionOptionsError('');
+    apiRequest(`/versions?software=${encodeURIComponent(software)}`)
+      .then(({ versions, defaultVersion }) => {
+        if (!Array.isArray(versions) || versions.some(version => !version || typeof version.id !== 'string' || typeof version.javaVersion !== 'string')) {
+          throw new Error('API-ul nu a returnat lista versiunilor de joc.');
+        }
+        if (!active) return;
+        const selectedVersion = versions.find(version => version.id === minecraftVersion);
+        const nextVersion = selectedVersion?.id || defaultVersion;
+        setVersionOptions(versions);
+        if (nextVersion && nextVersion !== minecraftVersion) setMinecraftVersion(nextVersion);
+        const nextJavaVersion = versions.find(version => version.id === nextVersion)?.javaVersion;
+        if (nextJavaVersion) setJavaVersion(current => Number(current.replace('Java ', '')) < Number(nextJavaVersion.replace('Java ', '')) ? nextJavaVersion : current);
+      })
+      .catch(error => {
+        if (active) setVersionOptionsError(error instanceof Error ? error.message : 'Versiunile nu au putut fi încărcate.');
+      });
+    return () => { active = false; };
+  }, [tab, software, server.id]);
   useEffect(() => {
     if (tab !== 'Overview') return undefined;
     let active = true;
@@ -793,6 +850,7 @@ function ServerDetail({server,logs,setLogs,setServers,consoleInput,setConsoleInp
   });
   const visiblePlugins = pluginCatalog.filter(plugin => `${plugin.name} ${plugin.description} ${plugin.category}`.toLowerCase().includes(pluginSearch.toLowerCase()));
   const selectedFile = files.find(file => file.path === openFile);
+  const minimumJava = versionOptions.find(version => version.id === minecraftVersion)?.javaVersion || 'Java 8';
 
   async function saveSettings(e) {
     e.preventDefault();
@@ -917,15 +975,16 @@ function ServerDetail({server,logs,setLogs,setServers,consoleInput,setConsoleInp
       <div className="section-heading"><div><div className="eyebrow">CONFIGURARE SERVER</div><h2>Setări</h2><p>Versiuni, runtime Java și preferințe de joc.</p></div><span className="demo-label">HOST API</span></div>
       <div className="settings-fields">
         <label>Numele serverului<input value={serverName} onChange={e=>setServerName(e.target.value)} maxLength={40} required/></label>
-        <label>Versiune Minecraft<select value={minecraftVersion} onChange={e=>setMinecraftVersion(e.target.value)}>{minecraftVersions.map(version=><option key={version}>{version}</option>)}</select><small>Alege versiunea pe care dorești să o configurezi.</small></label>
+        <label>Versiune Minecraft<select value={minecraftVersion} onChange={e=>{const version=e.target.value;setMinecraftVersion(version);const requirement=versionOptions.find(option=>option.id===version)?.javaVersion;if(requirement)setJavaVersion(current=>Number(current.replace('Java ',''))<Number(requirement.replace('Java ',''))?requirement:current);}}>{versionOptions.map(version=><option key={version.id} value={version.id}>{version.id} · Java {version.javaVersion.replace('Java ','')}+</option>)}</select><small>Alege versiunea pe care dorești să o configurezi.</small></label>
         <label>Software server<select value={software} onChange={e=>setSoftware(e.target.value)}><option>Paper</option><option>Vanilla</option></select><small>Paper permite pluginuri; Vanilla este versiunea oficială fără pluginuri.</small></label>
-        <label>Versiune Java<select value={javaVersion} onChange={e=>setJavaVersion(e.target.value)}>{javaVersions.map(version=><option key={version}>{version}</option>)}</select><small>Compatibilitatea depinde de versiunea Minecraft selectată.</small></label>
+        <label>Versiune Java<select value={javaVersion} onChange={e=>setJavaVersion(e.target.value)}>{javaVersions.filter(version=>Number(version.replace('Java ',''))>=Number(minimumJava.replace('Java ',''))).map(version=><option key={version}>{version}</option>)}</select><small>Versiunea selectată cere minimum {minimumJava}.</small></label>
         <label>RAM alocat<select value={ram} onChange={e=>setRam(Number(e.target.value))}>{[1,2,3,4,6,8,12,16,24,32].map(amount=><option key={amount} value={amount}>{amount} GB</option>)}</select><small>Poți aloca maximum 32 GB RAM per cont.</small></label>
         <label>Număr maxim de jucători<input type="number" min="1" max="500" value={maxPlayers} onChange={e=>setMaxPlayers(e.target.value)} required/></label>
         <label className="settings-wide">Mesaj server (MOTD)<input value={motd} onChange={e=>setMotd(e.target.value)} maxLength={100}/></label>
         <label className="eula-accept"><input type="checkbox" checked={eulaAccepted} onChange={e=>setEulaAccepted(e.target.checked)}/><span>Accept Minecraft EULA și condițiile de utilizare.<small>Serverul nu pornește până nu confirmi acceptarea.</small></span></label>
       </div>
       <div className="settings-footer"><span><Zap size={14}/> Setările se salvează pe host.</span><button className="primary-btn" type="submit"><Save size={15}/> Salvează setările</button></div>
+      {versionOptionsError && <div className="login-error" role="alert">{versionOptionsError}</div>}
     </form>}
   </section>;
 }
