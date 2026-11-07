@@ -2,6 +2,30 @@ import { supabase } from './supabase.js';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') || '';
 
+export async function checkApiHealth() {
+  let response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/health`, { cache: 'no-store' });
+  } catch {
+    throw new Error('API-ul hostului nu este disponibil. Verifică VITE_API_URL și pornește serviciul Node.js.');
+  }
+
+  if (!(response.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
+    throw new Error('VITE_API_URL nu indică API-ul: adresa a returnat HTML, nu răspunsul JSON al API-ului.');
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('API-ul hostului a returnat un răspuns JSON invalid.');
+  }
+  if (!response.ok || result.status !== 'ok') {
+    throw new Error(result.error || `API-ul hostului a returnat HTTP ${response.status}.`);
+  }
+  return result;
+}
+
 export async function apiRequest(path, { method = 'GET', body } = {}) {
   if (!supabase) throw new Error('Autentificarea Supabase nu este configurată.');
 
