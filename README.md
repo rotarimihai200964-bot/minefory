@@ -24,8 +24,19 @@ The project has a React panel and a Node.js API that downloads Minecraft server 
    npm run dev
    ```
 
-Vite proxies `/api` to the local API. Server data and JARs are stored under `data/` and are excluded from Git.
+Vite proxies `/api` to the local API. Server data and JARs are stored under `DATA_DIR` (default `data/`) and are excluded from Git.
 The administrator email is public configuration, not a password. Set or reset its password through Supabase; never put the password in `.env.example`, frontend code, or Git.
+
+### Run a Minecraft server for free on Windows
+
+Render Free does not provide enough memory, persistent storage, or public Minecraft TCP ports to host a playable Minecraft server. To run one without paying for hosting, the Windows PC must stay on while the server is online:
+
+1. Install Node.js LTS and Java 21 (Temurin). Make sure `node`, `npm`, and `java` are available in a new Command Prompt.
+2. Keep a private local `.env` in the project root. If it is missing, `start-minefory-local.bat` copies `.env.example` to `.env`; do not upload `.env` to GitHub.
+3. Run `start-minefory-local.bat`. It installs npm dependencies if needed, starts the API and panel locally, and opens `http://localhost:5173`. Sign in with the existing Supabase account and create a server there. Local server data is separate from Render's data.
+4. To let other people join, allow Java through Windows Firewall and forward the server's TCP port (normally `25565`) from the router to this PC. Set `MINECRAFT_HOST` in `.env` to the public address players should use, then restart the API. If the ISP uses CGNAT or blocks inbound connections, router port forwarding will not work.
+
+The public Cloudflare Pages site continues to use its configured remote API; it cannot start a server running on this PC. Use the local panel URL above to manage the local server. The Render API health check does not confirm that Java is installed or that a Minecraft server can accept players.
 
 ### Team access and roles
 
