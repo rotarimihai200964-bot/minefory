@@ -778,10 +778,12 @@ async function handleApi(request, response, url) {
       throw new HttpError(400, `Minecraft ${updated.version} with ${updated.software} requires Java ${minimumJava} or newer.`);
     }
     const userServers = await listUserMetadata(ownerId);
-    const allocatedRam = userServers.reduce((total, server) => total + (server.id === serverId ? updated.ram || 0 : server.ram || 0), 0);
+    const allocatedRam = userServers.reduce((total, server) => total + (server.ram || 0), 0);
     const ramChange = Math.max(0, (updated.ram || 0) - (metadata.ram || 0));
     const pendingRamChange = pendingRamChanges.get(ownerId) || 0;
-    if (allocatedRam + pendingRamChange + ramChange > MAX_RAM_PER_USER_GB) throw new HttpError(429, `Each account can allocate up to ${MAX_RAM_PER_USER_GB} GB RAM across all servers.`);
+    if (ramChange > 0 && allocatedRam + pendingRamChange + ramChange > MAX_RAM_PER_USER_GB) {
+      throw new HttpError(429, `Each account can allocate up to ${MAX_RAM_PER_USER_GB} GB RAM across all servers.`);
+    }
     if (ramChange > 0) pendingRamChanges.set(ownerId, pendingRamChange + ramChange);
     try {
       if (updated.version !== metadata.version || updated.software !== metadata.software || await serverJarMissing(directory)) {
