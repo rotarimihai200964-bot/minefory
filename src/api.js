@@ -24,7 +24,18 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
     throw new Error('API-ul hostului nu este disponibil. Pornește backendul și verifică VITE_API_URL.');
   }
 
-  const result = await response.json().catch(() => ({}));
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    if (!response.ok) throw new Error(`API-ul hostului a returnat HTTP ${response.status}.`);
+    throw new Error('Adresa API nu este configurată: site-ul a returnat HTML în loc de date API. Setează VITE_API_URL la URL-ul HTTPS al API-ului și reconstruiește frontend-ul.');
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('API-ul hostului a returnat un răspuns JSON invalid.');
+  }
   if (!response.ok) throw new Error(result.error || `API-ul hostului a returnat HTTP ${response.status}.`);
   return result;
 }
