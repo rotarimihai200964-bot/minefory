@@ -12,6 +12,8 @@ Minefory is an authenticated dashboard for managing authorized Ubuntu Linux and 
 
 There is no web terminal and no arbitrary command field. Termux reboot is not supported. Service restart and reboot require the narrowly scoped sudo permissions described below. Only install the agent on machines you own or are explicitly authorized to administer.
 
+The Ubuntu and Termux pages include a setup console with copyable installation commands, service/resource examples, and searchable links to official documentation. Its **Adaugă host** button opens the host registration form in Admin Panel. The console does not run commands; run setup instructions manually on a host you own or are authorized to administer. Search results from the web should be reviewed before using third-party scripts.
+
 ## Local frontend
 
 Requirements: Node.js 20+ and a Supabase project with Google OAuth enabled. Email/Password authentication remains available as a fallback.
@@ -97,6 +99,8 @@ python host-agent/agent.py
 Termux supports status and resource checks. Service status/restart are available when `termux-services` is installed and a service name is configured. Reboot is intentionally unavailable.
 
 When adding the host in Minefory, enter the HTTPS address of its tunnel, its platform, the configured service name (required for Ubuntu; optional for Termux), and the same agent token. The endpoint must be reachable from Supabase Edge Functions.
+
+The platform pages in Minefory provide copyable setup commands and searchable documentation links for these steps. The setup console never executes shell input or arbitrary commands remotely.
 
 ## Cloudflare Pages build
 
