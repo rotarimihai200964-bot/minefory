@@ -516,6 +516,7 @@ async function listFiles(directory, relative = '', depth = 0) {
     if (entry.isSymbolicLink() || entry.name === 'minefory.json' || entry.name.startsWith('server.jar.download-')) continue;
     const itemPath = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) result.push({ path: itemPath, type: 'folder' }, ...await listFiles(directory, itemPath, depth + 1));
+    else if (entry.isFile() && itemPath === 'server.jar') result.push({ path: itemPath, type: 'binary', size: (await lstat(path.join(directory, itemPath))).size });
     else if (entry.isFile() && /\.(txt|properties|json|ya?ml|cfg|toml|conf|md)$/i.test(entry.name)) result.push({ path: itemPath, type: 'file', size: (await lstat(path.join(directory, ...itemPath.split('/')))).size });
   }
   return result;
