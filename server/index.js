@@ -56,6 +56,7 @@ const supabaseAnonKey = process.env.SUPABASE_PUBLISHABLE_KEY
   || process.env.SUPABASE_ANON_KEY
   || process.env.VITE_SUPABASE_PUBLISHABLE_KEY
   || process.env.VITE_SUPABASE_ANON_KEY;
+const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean));
 const host = process.env.HOST || process.env.API_HOST || '127.0.0.1';
 const port = Number(process.env.PORT || process.env.API_PORT || 8787);
@@ -63,6 +64,9 @@ const dataRoot = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), '
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in the backend .env file.');
+}
+if (!adminEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+  throw new Error('Set ADMIN_EMAIL to the administrator account email.');
 }
 if (allowedOrigins.size === 0 || allowedOrigins.has('*')) {
   throw new Error('Set ALLOWED_ORIGINS to the exact HTTPS frontend origin(s); wildcard CORS is not allowed.');
@@ -158,6 +162,9 @@ async function requireUser(request) {
   if (!response.ok) throw new HttpError(401, 'Your session is invalid or expired.');
   const user = await response.json();
   if (!user.id || user.email_confirmed_at === null) throw new HttpError(403, 'Confirm your email before managing servers.');
+  if (typeof user.email !== 'string' || user.email.trim().toLowerCase() !== adminEmail) {
+    throw new HttpError(403, 'This panel is restricted to its administrator account.');
+  }
   return user.id;
 }
 
