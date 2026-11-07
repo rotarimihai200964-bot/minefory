@@ -51,7 +51,7 @@ Deno.serve(async request => {
     .eq('email', email)
     .maybeSingle();
   if (memberError) return json({ error: 'Rolul contului nu a putut fi verificat.' }, 500);
-  if (!member || !['owner', 'co_owner'].includes(member.role)) return json({ error: 'Acces refuzat.' }, 403);
+  if (!member || !['owner', 'co_owner', 'termux_member'].includes(member.role)) return json({ error: 'Acces refuzat.' }, 403); const termuxOnly = member.role === 'termux_member';
 
   const contentLength = Number(request.headers.get('Content-Length') || 0);
   if (contentLength > 8192) return json({ error: 'Cererea este prea mare.' }, 413);
@@ -81,7 +81,7 @@ Deno.serve(async request => {
     if (!uuidPattern.test(id) || !name || name.length > 60) {
       return json({ error: 'Identificatorul sau numele mașinii nu este valid.' }, 400);
     }
-    if (platform !== 'ubuntu' && platform !== 'termux') return json({ error: 'Platformă neacceptată.' }, 400);
+    if (platform !== 'ubuntu' && platform !== 'termux') return json({ error: 'Platformă neacceptată.' }, 400); if (termuxOnly && platform !== 'termux') return json({ error: 'Membrii Termux pot configura doar hosturi Termux.' }, 403); if (termuxOnly) { const { data: existingMachine, error: existingMachineError } = await serviceClient.from('minefory_machines').select('platform').eq('id', id).maybeSingle(); if (existingMachineError) return json({ error: 'Configurația mașinii nu a putut fi citită.' }, 500); if (existingMachine && existingMachine.platform !== 'termux') return json({ error: 'Membrii Termux nu pot modifica hosturi Ubuntu.' }, 403); }
     if (!isPublicHttpsUrl(parsedEndpoint) || parsedEndpoint.username || parsedEndpoint.password || parsedEndpoint.search || parsedEndpoint.hash) {
       return json({ error: 'Agentul trebuie să aibă un endpoint HTTPS fără credențiale sau parametri.' }, 400);
     }
@@ -106,7 +106,7 @@ Deno.serve(async request => {
 
   if (body.operation === 'delete') {
     const id = typeof body.machine_id === 'string' ? body.machine_id : '';
-    if (!uuidPattern.test(id)) return json({ error: 'Identificatorul mașinii nu este valid.' }, 400);
+    if (!uuidPattern.test(id)) return json({ error: 'Identificatorul mașinii nu este valid.' }, 400); if (termuxOnly) { const { data: machine, error: machineError } = await serviceClient.from('minefory_machines').select('platform').eq('id', id).maybeSingle(); if (machineError) return json({ error: 'Configurația mașinii nu a putut fi citită.' }, 500); if (!machine || machine.platform !== 'termux') return json({ error: 'Membrii Termux pot șterge doar hosturi Termux.' }, 403); }
     const { error } = await serviceClient.from('minefory_machines').delete().eq('id', id);
     if (error) return json({ error: `Mașina nu a putut fi ștearsă: ${error.message}` }, 500);
     return json({ ok: true });
@@ -124,7 +124,7 @@ Deno.serve(async request => {
     .select('id,platform,endpoint,service_name,enabled')
     .eq('id', id).maybeSingle();
   if (machineError) return json({ error: 'Configurația mașinii nu a putut fi citită.' }, 500);
-  if (!machine || !machine.enabled) return json({ error: 'Mașina nu există sau este dezactivată.' }, 404);
+  if (!machine || !machine.enabled) return json({ error: 'Mașina nu există sau este dezactivată.' }, 404); if (termuxOnly && machine.platform !== 'termux') return json({ error: 'Membrii Termux pot acționa doar asupra hosturilor Termux.' }, 403);
   if (action === 'reboot' && machine.platform !== 'ubuntu') return json({ error: 'Rebootul este disponibil doar pentru Ubuntu.' }, 400);
   if (['service_status', 'restart_service'].includes(action) && !machine.service_name) {
     return json({ error: 'Nu este configurat un serviciu allowlist pentru această mașină.' }, 400);
