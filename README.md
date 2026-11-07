@@ -38,6 +38,8 @@ The API persists team access in `DATA_DIR/access-control.json`. The Owner is the
 
 Add team emails only after their Supabase accounts exist. Existing accounts must have been created before access is granted; a later-created account with the same address is rejected. Adding access does not create an account or send an invitation. The user signs in with their own Supabase credentials. Role checks and server scoping are enforced by the API, not only by hidden panel controls.
 
+The server creation and settings forms load current Minecraft release versions from Mojang and PaperMC. Creating a Paper server downloads the latest stable Paper build for the selected Minecraft version as `server.jar` and verifies its SHA-256 checksum. If `server.jar` is missing when a server is started, the API downloads it again. The panel selects the minimum Java version required by that game release, but that Java runtime must also be installed and configured on the API host.
+
 ## Remote deployment
 
 - Put the API behind a reverse proxy with HTTPS. Keep the Node API bound to `127.0.0.1`; do not expose it directly to the public internet.
@@ -54,7 +56,7 @@ Set the Node service's `HOST` to `0.0.0.0` and `PORT` to the port allocated by t
 
 The API stores server metadata, JARs, worlds, and server files under `DATA_DIR`. Keep that directory mounted on persistent storage and do not delete or replace the volume when redeploying. Account emails and passwords are handled by Supabase Auth; passwords are never saved in this server data directory or stored by the API.
 
-Keep the API in its own persistent Node.js service, not inside a Minecraft server's Java startup process. The API starts Java child processes itself and needs the selected Java executable plus allocated Minecraft ports. Verify the hosting provider permits this before using it as a game-server host.
+Keep the API in its own persistent Node.js service, not inside a Minecraft server's Java startup process. The API starts Java child processes itself and needs the selected Java executable plus allocated Minecraft ports. Render Free web services do not provide persistent disks or public arbitrary Minecraft TCP ports; they are not suitable for hosting reachable Minecraft servers or keeping their files across restarts. Use a game-server host or a VPS that supports persistent storage and inbound Minecraft TCP ports.
 
 ## API
 Team server operations use the Owner's host storage, while Members can reach only their explicitly assigned server IDs. API authorization enforces these rules regardless of what the frontend displays.
