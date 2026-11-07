@@ -27,7 +27,7 @@ function normalizePanelUrl(value) {
   return url.toString().replace(/\/+$/, '');
 }
 
-function App() {
+export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
