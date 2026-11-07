@@ -161,8 +161,7 @@ async function requireUser(request) {
   }
   if (!response.ok) throw new HttpError(401, 'Your session is invalid or expired.');
   const user = await response.json();
-  if (!user.id || user.email_confirmed_at === null) throw new HttpError(403, 'Confirm your email before managing servers.');
-  if (typeof user.email !== 'string' || user.email.trim().toLowerCase() !== adminEmail) {
+  if (!user.id || typeof user.email !== 'string' || user.email.trim().toLowerCase() !== adminEmail) {
     throw new HttpError(403, 'This panel is restricted to its administrator account.');
   }
   return user.id;
