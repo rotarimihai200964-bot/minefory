@@ -11,11 +11,12 @@ The project has a React panel and a Node.js API that downloads Minecraft server 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. The provided `.env.example` is prefilled with this project's Supabase URL and publishable key. Copy it to `.env` and use `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` in the frontend and `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` in the API. The publishable key is safe for browser use; never use `SUPABASE_SECRET_KEY` or a `service_role` key.
+2. The provided `.env.example` is prefilled with this project's Supabase URL, publishable key, and administrator email. Use `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_ADMIN_EMAIL` for the frontend; use `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `ADMIN_EMAIL` for the API. Never use `SUPABASE_SECRET_KEY` or a `service_role` key.
 3. Keep `API_HOST=127.0.0.1` for local development. Set `ALLOWED_ORIGINS=http://localhost:5173`.
 4. Configure Java executable paths (for example `JAVA_21_PATH=C:\Program Files\Eclipse Adoptium\jdk-21\bin\java.exe`). The selected Java version is checked before starting a server.
-5. In Supabase, enable the Email provider. For immediate sign-in after registration, turn off email confirmation under **Authentication → Providers → Email**; with confirmation enabled, users must confirm their address before signing in. Keep confirmation enabled for a public service if you require verified addresses.
-6. Install dependencies and run the frontend and API in separate terminals:
+5. In Supabase, create the administrator account matching `ADMIN_EMAIL` / `VITE_ADMIN_EMAIL`. To allow sign-in without confirming the address, turn off **Confirm email** for the Email provider in Supabase Authentication settings. This is a Supabase project setting and cannot be changed by this app's publishable key.
+6. This is an admin-only panel: public registration is not shown, the frontend allows only the configured admin email, and the API independently checks `ADMIN_EMAIL` on every protected request. Also disable public signups in Supabase under **Authentication → Settings**.
+7. Install dependencies and run the frontend and API in separate terminals:
 
    ```sh
    npm install
@@ -24,21 +25,25 @@ The project has a React panel and a Node.js API that downloads Minecraft server 
    ```
 
 Vite proxies `/api` to the local API. Server data and JARs are stored under `data/` and are excluded from Git.
-Email addresses are trimmed and normalized to lowercase before authentication. Supabase enforces unique accounts for an email address; registration also requires a password confirmation and at least 8 characters.
+The administrator email is public configuration, not a password. Set or reset its password through Supabase; never put the password in `.env.example`, frontend code, or Git.
+
+After signing in, the **Admin panel** page shows the API health state, server and RAM totals, and management actions for servers owned by the administrator account. It does not enumerate or manage other Supabase users; account administration remains in Supabase.
 
 ## Remote deployment
 
 - Put the API behind a reverse proxy with HTTPS. Keep the Node API bound to `127.0.0.1`; do not expose it directly to the public internet.
 - Set `ALLOWED_ORIGINS` to the exact HTTPS origin of the panel and set the frontend `VITE_API_URL` to the API's HTTPS origin at build time.
-- Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `DATA_DIR`, `MINECRAFT_HOST`, and Java paths on the API host. The publishable key can be used to validate Supabase sessions; never use a `SUPABASE_SECRET_KEY` or `service_role` key in the browser or API config.
+- Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `DATA_DIR`, `MINECRAFT_HOST`, and Java paths on the API host. The publishable key can be used to validate Supabase sessions; never use a `SUPABASE_SECRET_KEY` or `service_role` key in the browser or API config.
 - Configure Supabase's Site URL and allowed redirect URLs for the deployed panel. Configure SMTP for confirmation and password-recovery mail.
 - Open the allocated Minecraft TCP port range (25565-25664) in the host firewall and set `MINECRAFT_HOST` to the address players should use.
 
 ### Node.js hosting panel / Egg
 
-The `.env` file does not install or start the API. Upload the project files to the Node.js service's working directory (the directory containing `package.json`), install dependencies with `npm install`, and use `npm run api` as its startup command. The API reads `.env` from that working directory.
+The `.env` file does not install or start the API, and you do not need to upload it to the host. Upload the project files to the Node.js service's working directory (the directory containing `package.json`), install dependencies with `npm install`, and use `npm run api` as its startup command. In the hosting panel, add the API settings as environment variables for the Node.js service; the API reads these directly from `process.env`. Set `DATA_DIR` to the persistent volume's mount path (`databazesecret` in this setup); if the panel expects an absolute container path, use the absolute mount path shown in its volume settings. A local `.env` is only for local development.
 
-Set the Node service's `HOST` to `0.0.0.0` and `PORT` to the port allocated by the hosting panel. These standard variables take precedence over `API_HOST` and `API_PORT`. Set `ALLOWED_ORIGINS` to the exact HTTPS origin of the panel UI, and configure `VITE_API_URL` to the API's public HTTPS URL when building the frontend. The example file's localhost values are for local development and must be changed for a remote deployment. The browser cannot call a plain HTTP API from an HTTPS panel; if the host does not provide HTTPS for the API, use a reverse proxy with TLS or host the API on a VPS you control.
+Set the Node service's `HOST` to `0.0.0.0` and `PORT` to the port allocated by the hosting panel. These standard variables take precedence over `API_HOST` and `API_PORT`. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ADMIN_EMAIL`, `ALLOWED_ORIGINS` (the exact HTTPS origin of the panel UI), `DATA_DIR`, `MINECRAFT_HOST`, and the required Java paths in the Node service's environment settings. When building the frontend, set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_ADMIN_EMAIL`, and `VITE_API_URL` to the corresponding project, admin email, and API values. Only the publishable key and admin email belong in frontend build settings; never put a Supabase secret/service-role key in the frontend or Git. The example file's localhost values are for local development and must be changed for a remote deployment. The browser cannot call a plain HTTP API from an HTTPS panel; if the host does not provide HTTPS for the API, use a reverse proxy with TLS or host the API on a VPS you control.
+
+The API stores server metadata, JARs, worlds, and server files under `DATA_DIR`. Keep that directory mounted on persistent storage and do not delete or replace the volume when redeploying. Account emails and passwords are handled by Supabase Auth; passwords are never saved in this server data directory or stored by the API.
 
 Keep the API in its own persistent Node.js service, not inside a Minecraft server's Java startup process. The API starts Java child processes itself and needs the selected Java executable plus allocated Minecraft ports. Verify the hosting provider permits this before using it as a game-server host.
 
