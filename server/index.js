@@ -14,6 +14,13 @@ const MAX_BODY_BYTES = 64 * 1024;
 const MAX_JAR_BYTES = 256 * 1024 * 1024;
 const MAX_SERVERS_PER_USER = 5;
 const MAX_RAM_PER_USER_GB = 32;
+const accessPermissions = ['view_servers', 'manage_servers', 'console', 'files', 'delete_servers'];
+const rolePermissions = {
+  owner: [...accessPermissions, 'create_server', 'manage_access'],
+  'co-owner': [...accessPermissions, 'create_server', 'manage_access'],
+  developer: ['view_servers', 'create_server', 'manage_servers', 'console', 'files'],
+  member: []
+};
 const running = new Map();
 const logs = new Map();
 const reservedPorts = new Set();
@@ -61,6 +68,7 @@ const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS || '').split(',').ma
 const host = process.env.HOST || process.env.API_HOST || '127.0.0.1';
 const port = Number(process.env.PORT || process.env.API_PORT || 8787);
 const dataRoot = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
+const accessConfigPath = path.join(dataRoot, 'access-control.json');
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in the backend .env file.');
@@ -73,6 +81,95 @@ if (allowedOrigins.size === 0 || allowedOrigins.has('*')) {
 }
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('API_PORT must be a valid TCP port.');
 await mkdir(dataRoot, { recursive: true });
+
+let accessConfig;
+try {
+  accessConfig = JSON.parse(await readFile(accessConfigPath, 'utf8'));
+  accessConfig = validateStoredAccessConfig(accessConfig);
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+  accessConfig = { ownerUserId: null, members: [] };
+}
+
+let accessWrite = Promise.resolve();
+function updateAccessConfig(update) {
+  const operation = accessWrite.then(async () => {
+    const next = validateStoredAccessConfig(update(accessConfig));
+    const temporaryPath = `${accessConfigPath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, JSON.stringify(next, null, 2), { mode: 0o600, flag: 'wx' });
+      await rename(temporaryPath, accessConfigPath);
+      accessConfig = next;
+    } catch (error) {
+      await rm(temporaryPath, { force: true });
+      throw error;
+    }
+  });
+  accessWrite = operation.catch(() => {});
+  return operation;
+}
+
+function accessForUser(user) {
+  const email = user.email.trim().toLowerCase();
+  if (email === adminEmail) return { email, role: 'owner', permissions: rolePermissions.owner, serverIds: null };
+  const membership = accessConfig.members.find(member => member.email === email);
+  if (!membership) throw new HttpError(403, 'This account has not been granted access to the Minefory panel.');
+  const accountCreatedAt = Date.parse(user.created_at);
+  if (!Number.isFinite(accountCreatedAt) || accountCreatedAt > Date.parse(membership.addedAt)) {
+    throw new HttpError(403, 'This Supabase account could not be verified as existing when panel access was granted.');
+  }
+  if (!accessConfig.ownerUserId) throw new HttpError(503, 'The owner account must sign in before team access can be used.');
+  return {
+    email,
+    role: membership.role,
+    permissions: membership.role === 'member' ? membership.permissions : rolePermissions[membership.role],
+    serverIds: membership.role === 'member' ? membership.serverIds : null
+  };
+}
+
+function requirePermission(principal, permission) {
+  if (!principal.permissions.includes(permission)) throw new HttpError(403, 'Your role does not allow this action.');
+}
+
+function requireServerAccess(principal, serverId) {
+  requirePermission(principal, 'view_servers');
+  if (principal.serverIds && !principal.serverIds.includes(serverId)) throw new HttpError(404, 'Server not found.');
+}
+
+function validateMembership(body) {
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'Enter a valid email address.');
+  if (email === adminEmail) throw new HttpError(400, 'The owner account cannot be changed through team access.');
+  if (!['co-owner', 'developer', 'member'].includes(body.role)) throw new HttpError(400, 'Choose a supported team role.');
+  if (body.role !== 'member') return { email, role: body.role, permissions: [], serverIds: [] };
+
+  const permissions = Array.isArray(body.permissions)
+    ? [...new Set(body.permissions)]
+    : [];
+  if (permissions.some(permission => !accessPermissions.includes(permission))) throw new HttpError(400, 'One or more member permissions are invalid.');
+  if (!permissions.includes('view_servers')) throw new HttpError(400, 'Members must have permission to view their assigned servers.');
+  const serverIds = Array.isArray(body.serverIds) ? [...new Set(body.serverIds)] : [];
+  if (serverIds.some(id => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id))) throw new HttpError(400, 'One or more server assignments are invalid.');
+  return { email, role: body.role, permissions, serverIds };
+}
+
+function validateStoredAccessConfig(config) {
+  if (!config || !Array.isArray(config.members) || (config.ownerUserId !== null && (typeof config.ownerUserId !== 'string' || !/^[0-9a-f-]{36}$/i.test(config.ownerUserId)))) {
+    throw new Error('Invalid access-control configuration.');
+  }
+  const emails = new Set();
+  const members = [];
+  for (const member of config.members) {
+    if (!member || typeof member !== 'object' || Array.isArray(member)) throw new Error('Invalid access-control membership record.');
+    const validated = validateMembership(member);
+    if (member.email !== validated.email || emails.has(validated.email) || typeof member.addedAt !== 'string' || !Number.isFinite(Date.parse(member.addedAt))) {
+      throw new Error('Invalid access-control membership record.');
+    }
+    emails.add(validated.email);
+    members.push({ ...validated, addedAt: member.addedAt });
+  }
+  return { ...config, members };
+}
 
 function serverKey(userId, serverId) {
   if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^[0-9a-f-]{36}$/i.test(serverId)) {
@@ -161,10 +258,26 @@ async function requireUser(request) {
   }
   if (!response.ok) throw new HttpError(401, 'Your session is invalid or expired.');
   const user = await response.json();
-  if (!user.id || typeof user.email !== 'string' || user.email.trim().toLowerCase() !== adminEmail) {
-    throw new HttpError(403, 'This panel is restricted to its administrator account.');
+  if (!user.id || typeof user.email !== 'string') throw new HttpError(401, 'Supabase returned an invalid account.');
+  const access = accessForUser(user);
+  if (access.role === 'owner') {
+    if (accessConfig.ownerUserId && accessConfig.ownerUserId !== user.id) throw new HttpError(403, 'The configured owner account does not match the stored Minefory owner.');
+    if (!accessConfig.ownerUserId) {
+      await updateAccessConfig(current => {
+        if (current.ownerUserId && current.ownerUserId !== user.id) throw new HttpError(403, 'The configured owner account does not match the stored Minefory owner.');
+        return current.ownerUserId ? current : { ...current, ownerUserId: user.id };
+      });
+    }
   }
-  return user.id;
+  if (!rolePermissions[access.role]) throw new HttpError(403, 'This account has an invalid panel role.');
+  return {
+    userId: user.id,
+    email: access.email,
+    role: access.role,
+    permissions: access.permissions,
+    serverIds: access.serverIds,
+    ownerUserId: access.role === 'owner' ? user.id : accessConfig.ownerUserId
+  };
 }
 
 async function fetchJson(url) {
@@ -437,40 +550,109 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, { status: 'ok' });
   }
 
-  const userId = await requireUser(request);
+  const principal = await requireUser(request);
+  if (url.pathname === '/api/access/me' && request.method === 'GET') {
+    return sendJson(response, 200, {
+      access: {
+        email: principal.email,
+        role: principal.role,
+        permissions: principal.permissions,
+        serverIds: principal.serverIds,
+        canManageAccess: principal.permissions.includes('manage_access')
+      }
+    });
+  }
+
+  if (url.pathname === '/api/access/members' && request.method === 'GET') {
+    requirePermission(principal, 'manage_access');
+    const servers = await listUserMetadata(principal.ownerUserId);
+    return sendJson(response, 200, {
+      members: accessConfig.members,
+      servers: servers.map(server => ({ id: server.id, name: server.name }))
+    });
+  }
+
+  if (url.pathname === '/api/access/members' && request.method === 'POST') {
+    requirePermission(principal, 'manage_access');
+    const membership = validateMembership(await readJsonBody(request));
+    const servers = await listUserMetadata(principal.ownerUserId);
+    if (membership.serverIds.some(id => !servers.some(server => server.id === id))) throw new HttpError(400, 'A selected server does not belong to this host.');
+    const member = { ...membership, addedAt: new Date().toISOString() };
+    await updateAccessConfig(current => {
+      if (current.members.some(existing => existing.email === membership.email)) throw new HttpError(409, 'This email already has panel access.');
+      return { ...current, members: [...current.members, member] };
+    });
+    return sendJson(response, 201, { member });
+  }
+
+  const memberMatch = url.pathname.match(/^\/api\/access\/members\/([^/]+)$/);
+  if (memberMatch) {
+    requirePermission(principal, 'manage_access');
+    const email = decodeURIComponent(memberMatch[1]).trim().toLowerCase();
+    const index = accessConfig.members.findIndex(member => member.email === email);
+    if (index < 0) throw new HttpError(404, 'Team member not found.');
+    if (request.method === 'PATCH') {
+      const membership = validateMembership({ ...await readJsonBody(request), email });
+      const servers = await listUserMetadata(principal.ownerUserId);
+      if (membership.serverIds.some(id => !servers.some(server => server.id === id))) throw new HttpError(400, 'A selected server does not belong to this host.');
+      let updated;
+      await updateAccessConfig(current => {
+        const currentIndex = current.members.findIndex(member => member.email === email);
+        if (currentIndex < 0) throw new HttpError(404, 'Team member not found.');
+        updated = { ...current.members[currentIndex], ...membership };
+        const members = [...current.members];
+        members[currentIndex] = updated;
+        return { ...current, members };
+      });
+      return sendJson(response, 200, { member: updated });
+    }
+    if (request.method === 'DELETE') {
+      await updateAccessConfig(current => {
+        if (!current.members.some(member => member.email === email)) throw new HttpError(404, 'Team member not found.');
+        return { ...current, members: current.members.filter(member => member.email !== email) };
+      });
+      return sendJson(response, 200, { removed: email });
+    }
+    throw new HttpError(405, 'Method not allowed.');
+  }
+
+  const ownerId = principal.ownerUserId;
   const collectionPath = url.pathname === '/api/servers';
 
   if (collectionPath && request.method === 'GET') {
-    const records = await listUserMetadata(userId);
-    return sendJson(response, 200, { servers: records.map(metadata => publicServer(metadata, userId)) });
+    requirePermission(principal, 'view_servers');
+    const records = await listUserMetadata(ownerId);
+    const visibleRecords = principal.serverIds ? records.filter(metadata => principal.serverIds.includes(metadata.id)) : records;
+    return sendJson(response, 200, { servers: visibleRecords.map(metadata => publicServer(metadata, ownerId)) });
   }
 
   if (collectionPath && request.method === 'POST') {
+    requirePermission(principal, 'create_server');
     const body = await readJsonBody(request);
     const version = body.version;
     validateVersion(version);
     const metadata = validateServerOptions({ ...body, software: body.software || 'Paper' });
     if (!metadata.name) throw new HttpError(400, 'Server name is required.');
-    const existing = await listUserMetadata(userId);
-    const pending = pendingProvisioning.get(userId) || { servers: 0, ram: 0 };
+    const existing = await listUserMetadata(ownerId);
+    const pending = pendingProvisioning.get(ownerId) || { servers: 0, ram: 0 };
     const requestedRam = metadata.ram || 2;
     const allocatedRam = existing.reduce((total, server) => total + (server.ram || 0), 0);
     if (existing.length + pending.servers >= MAX_SERVERS_PER_USER) throw new HttpError(429, `Each account can create up to ${MAX_SERVERS_PER_USER} servers.`);
     if (allocatedRam + pending.ram + requestedRam > MAX_RAM_PER_USER_GB) throw new HttpError(429, `Each account can allocate up to ${MAX_RAM_PER_USER_GB} GB RAM across all servers.`);
     pending.servers += 1;
     pending.ram += requestedRam;
-    pendingProvisioning.set(userId, pending);
+    pendingProvisioning.set(ownerId, pending);
     const id = randomUUID();
-    const directory = serverDirectory(userId, id);
+    const directory = serverDirectory(ownerId, id);
     let port;
     try {
-      await mkdir(path.join(dataRoot, userId), { recursive: true, mode: 0o700 });
+      await mkdir(path.join(dataRoot, ownerId), { recursive: true, mode: 0o700 });
       port = await allocatePort();
       await mkdir(directory, { recursive: false, mode: 0o700 });
       await installServerJar(directory, version, metadata.software);
       const now = new Date().toISOString();
       const stored = {
-        id, ownerId: userId, name: metadata.name, game: 'Minecraft Java',
+        id, ownerId, name: metadata.name, game: 'Minecraft Java',
         version, javaVersion: metadata.javaVersion || 'Java 21',
         software: metadata.software, ram: metadata.ram || 2,
         maxPlayers: metadata.maxPlayers || 20,
@@ -482,7 +664,7 @@ async function handleApi(request, response, url) {
       await writeFile(path.join(directory, 'eula.txt'), 'eula=false\n', { mode: 0o600 });
       await writeFile(path.join(directory, 'server.properties'), `server-port=${port}\nmotd=${stored.motd}\nmax-players=${stored.maxPlayers}\nonline-mode=true\n`, { mode: 0o600 });
       await writeMetadata(stored);
-      return sendJson(response, 201, { server: publicServer(stored, userId) });
+      return sendJson(response, 201, { server: publicServer(stored, ownerId) });
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
       if (port !== undefined) reservedPorts.delete(port);
@@ -490,7 +672,7 @@ async function handleApi(request, response, url) {
     } finally {
       pending.servers -= 1;
       pending.ram -= requestedRam;
-      if (pending.servers === 0) pendingProvisioning.delete(userId);
+      if (pending.servers === 0) pendingProvisioning.delete(ownerId);
     }
   }
 
@@ -498,21 +680,23 @@ async function handleApi(request, response, url) {
   if (!match) throw new HttpError(404, 'API endpoint not found.');
   const serverId = match[1];
   const action = match[2] || '';
-  const metadata = await loadMetadata(userId, serverId);
-  const directory = serverDirectory(userId, serverId);
+  requireServerAccess(principal, serverId);
+  const metadata = await loadMetadata(ownerId, serverId);
+  const directory = serverDirectory(ownerId, serverId);
 
-  if (!action && request.method === 'GET') return sendJson(response, 200, { server: publicServer(metadata, userId) });
+  if (!action && request.method === 'GET') return sendJson(response, 200, { server: publicServer(metadata, ownerId) });
 
   if (!action && request.method === 'PATCH') {
-    if (getStatus(userId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before changing its version or settings.');
+    requirePermission(principal, 'manage_servers');
+    if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before changing its version or settings.');
     const body = await readJsonBody(request);
     const updated = validateServerOptions(body, metadata);
-    const userServers = await listUserMetadata(userId);
+    const userServers = await listUserMetadata(ownerId);
     const allocatedRam = userServers.reduce((total, server) => total + (server.id === serverId ? updated.ram || 0 : server.ram || 0), 0);
     const ramChange = Math.max(0, (updated.ram || 0) - (metadata.ram || 0));
-    const pendingRamChange = pendingRamChanges.get(userId) || 0;
+    const pendingRamChange = pendingRamChanges.get(ownerId) || 0;
     if (allocatedRam + pendingRamChange + ramChange > MAX_RAM_PER_USER_GB) throw new HttpError(429, `Each account can allocate up to ${MAX_RAM_PER_USER_GB} GB RAM across all servers.`);
-    if (ramChange > 0) pendingRamChanges.set(userId, pendingRamChange + ramChange);
+    if (ramChange > 0) pendingRamChanges.set(ownerId, pendingRamChange + ramChange);
     try {
       if (updated.version !== metadata.version || updated.software !== metadata.software || await serverJarMissing(directory)) {
         await installServerJar(directory, updated.version, updated.software);
@@ -525,69 +709,77 @@ async function handleApi(request, response, url) {
       }
       updated.updatedAt = new Date().toISOString();
       await writeMetadata(updated);
-      return sendJson(response, 200, { server: publicServer(updated, userId) });
+      return sendJson(response, 200, { server: publicServer(updated, ownerId) });
     } finally {
       if (ramChange > 0) {
-        const remaining = (pendingRamChanges.get(userId) || 0) - ramChange;
-        if (remaining === 0) pendingRamChanges.delete(userId);
-        else pendingRamChanges.set(userId, remaining);
+        const remaining = (pendingRamChanges.get(ownerId) || 0) - ramChange;
+        if (remaining === 0) pendingRamChanges.delete(ownerId);
+        else pendingRamChanges.set(ownerId, remaining);
       }
     }
   }
 
   if (!action && request.method === 'DELETE') {
-    if (getStatus(userId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before deleting it.');
+    requirePermission(principal, 'delete_servers');
+    if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before deleting it.');
     await rm(directory, { recursive: true, force: false });
     reservedPorts.delete(metadata.port);
     return sendJson(response, 200, { deleted: serverId });
   }
 
   if (action === 'start' && request.method === 'POST') {
-    if (getStatus(userId, serverId) === 'Online') throw new HttpError(409, 'Server is already running.');
-    await startServer(userId, serverId, metadata, directory);
-    return sendJson(response, 202, { server: publicServer(metadata, userId), status: 'Starting' });
+    requirePermission(principal, 'manage_servers');
+    if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Server is already running.');
+    await startServer(ownerId, serverId, metadata, directory);
+    return sendJson(response, 202, { server: publicServer(metadata, ownerId), status: 'Starting' });
   }
 
   if (action === 'stop' && request.method === 'POST') {
-    await stopServer(userId, serverId);
+    requirePermission(principal, 'manage_servers');
+    await stopServer(ownerId, serverId);
     return sendJson(response, 202, { status: 'Stopping' });
   }
 
   if (action === 'restart' && request.method === 'POST') {
-    if (getStatus(userId, serverId) !== 'Online') throw new HttpError(409, 'Start the server before restarting it.');
-    const child = running.get(serverKey(userId, serverId));
+    requirePermission(principal, 'manage_servers');
+    if (getStatus(ownerId, serverId) !== 'Online') throw new HttpError(409, 'Start the server before restarting it.');
+    const child = running.get(serverKey(ownerId, serverId));
     child.once('exit', () => {
       setTimeout(() => {
-        startServer(userId, serverId, metadata, directory).catch(error => {
-          const entries = logs.get(serverKey(userId, serverId)) || [];
+        startServer(ownerId, serverId, metadata, directory).catch(error => {
+          const entries = logs.get(serverKey(ownerId, serverId)) || [];
           entries.push(`[Minefory API] Restart failed: ${error.message}`);
-          logs.set(serverKey(userId, serverId), entries.slice(-500));
+          logs.set(serverKey(ownerId, serverId), entries.slice(-500));
         });
       }, 1000).unref();
     });
-    await stopServer(userId, serverId);
+    await stopServer(ownerId, serverId);
     return sendJson(response, 202, { status: 'Restarting' });
   }
 
   if (action === 'command' && request.method === 'POST') {
+    requirePermission(principal, 'console');
     const body = await readJsonBody(request);
-    if (getStatus(userId, serverId) !== 'Online') throw new HttpError(409, 'Server is not running.');
+    if (getStatus(ownerId, serverId) !== 'Online') throw new HttpError(409, 'Server is not running.');
     if (typeof body.command !== 'string' || !body.command.trim() || body.command.length > 500 || /[\r\n]/.test(body.command)) {
       throw new HttpError(400, 'Enter a single server command of 1 to 500 characters.');
     }
-    running.get(serverKey(userId, serverId)).stdin.write(`${body.command.trim()}\n`);
+    running.get(serverKey(ownerId, serverId)).stdin.write(`${body.command.trim()}\n`);
     return sendJson(response, 202, { accepted: true });
   }
 
   if (action === 'logs' && request.method === 'GET') {
-    return sendJson(response, 200, { logs: logs.get(serverKey(userId, serverId)) || [], status: getStatus(userId, serverId) });
+    requirePermission(principal, 'console');
+    return sendJson(response, 200, { logs: logs.get(serverKey(ownerId, serverId)) || [], status: getStatus(ownerId, serverId) });
   }
   if (action === 'logs' && request.method === 'DELETE') {
-    logs.set(serverKey(userId, serverId), []);
+    requirePermission(principal, 'console');
+    logs.set(serverKey(ownerId, serverId), []);
     return sendJson(response, 200, { cleared: true });
   }
 
   if (action === 'files' && request.method === 'GET') {
+    requirePermission(principal, 'files');
     const relative = decodeFilePath(url.pathname.slice(`/api/servers/${serverId}/files`.length).replace(/^\/+/, ''));
     const directoryPath = relative ? await assertSafeFilePath(directory, safeTextPath(`${relative}/placeholder.txt`).slice(0, -1)) : directory;
     const files = await listFiles(directoryPath);
@@ -595,7 +787,8 @@ async function handleApi(request, response, url) {
   }
 
   if (action === 'files' && request.method === 'POST') {
-    if (getStatus(userId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before creating files.');
+    requirePermission(principal, 'files');
+    if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before creating files.');
     const body = await readJsonBody(request);
     const segments = safeTextPath(body.path);
     const filePath = await assertSafeFilePath(directory, segments, true);
@@ -613,6 +806,7 @@ async function handleApi(request, response, url) {
 
   const fileMatch = action.match(/^files\/(.+)$/);
   if (fileMatch && request.method === 'GET') {
+    requirePermission(principal, 'files');
     const segments = safeTextPath(decodeFilePath(fileMatch[1]));
     const filePath = await assertSafeFilePath(directory, segments);
     const content = await readFile(filePath, 'utf8');
@@ -621,7 +815,8 @@ async function handleApi(request, response, url) {
   }
 
   if (fileMatch && request.method === 'PUT') {
-    if (getStatus(userId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before editing files.');
+    requirePermission(principal, 'files');
+    if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before editing files.');
     const segments = safeTextPath(decodeFilePath(fileMatch[1]));
     const filePath = await assertSafeFilePath(directory, segments, true);
     const body = await readJsonBody(request);
