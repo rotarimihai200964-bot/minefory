@@ -222,10 +222,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .member-add-card { margin-bottom: 18px; }
 .member-add-form>label,.management-form>label { display: block; margin-bottom: 7px; color: #cbd2e2; font-size: 10px; font-weight: 700; }
 .member-add-form>div { display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 4px 5px 4px 12px; border: 1px solid #30394f; border-radius: 9px; background: #0d121e; color: #8e9ab1; }
-.member-add-form input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #f0f1fa; font-size: 10px; }
+.member-add-form input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #f0f1fa; font-size: 10px; } .member-add-form select { min-height: 33px; padding: 6px 8px; border: 1px solid #30394f; border-radius: 7px; background: #151b2a; color: #dce1ed; font-size: 9px; }
 .member-row { min-height: 62px; }
 .rank-badge { padding: 6px 8px; border: 1px solid #3e365b; border-radius: 8px; background: #211e33; color: #c2afff; font-size: 8px; font-weight: 800; letter-spacing: .7px; }
-.rank-badge.owner { border-color: #5a4b2f; background: #27231b; color: #e3c87a; }
+.rank-badge.owner { border-color: #5a4b2f; background: #27231b; color: #e3c87a; } .rank-badge.termux_member { border-color: #31516b; background: #17283a; color: #82c9ff; }
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 20px; background: #05070bd9; }
 .modal-card { width: min(100%,480px); max-height: min(90vh,780px); overflow-y: auto; padding: 20px; border: 1px solid #353b51; border-radius: 15px; background: #111624; box-shadow: 0 30px 100px #0009; }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
@@ -476,10 +476,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .member-add-card { margin-bottom: 18px; }
 .member-add-form>label,.management-form>label { display: block; margin-bottom: 7px; color: #cbd2e2; font-size: 10px; font-weight: 700; }
 .member-add-form>div { display: flex; align-items: center; gap: 10px; min-height: 43px; padding: 4px 5px 4px 12px; border: 1px solid #30394f; border-radius: 9px; background: #0d121e; color: #8e9ab1; }
-.member-add-form input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #f0f1fa; font-size: 10px; }
+.member-add-form input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #f0f1fa; font-size: 10px; } .member-add-form select { min-height: 33px; padding: 6px 8px; border: 1px solid #30394f; border-radius: 7px; background: #151b2a; color: #dce1ed; font-size: 9px; }
 .member-row { min-height: 62px; }
 .rank-badge { padding: 6px 8px; border: 1px solid #3e365b; border-radius: 8px; background: #211e33; color: #c2afff; font-size: 8px; font-weight: 800; letter-spacing: .7px; }
-.rank-badge.owner { border-color: #5a4b2f; background: #27231b; color: #e3c87a; }
+.rank-badge.owner { border-color: #5a4b2f; background: #27231b; color: #e3c87a; } .rank-badge.termux_member { border-color: #31516b; background: #17283a; color: #82c9ff; }
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 20px; background: #05070bd9; }
 .modal-card { width: min(100%,480px); max-height: min(90vh,780px); overflow-y: auto; padding: 20px; border: 1px solid #353b51; border-radius: 15px; background: #111624; box-shadow: 0 30px 100px #0009; }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
