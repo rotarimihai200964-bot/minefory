@@ -25,7 +25,7 @@ const actions = [
 const errorText = error => error instanceof Error ? error.message : 'Operația nu a putut fi efectuată.';
 
 export default function Dashboard({ authUser, role, globalError, onSignOut }) {
-  const [activePage, setActivePage] = useState('overview');
+  const [activePage, setActivePage] = useState(role === 'termux_member' ? 'termux' : 'overview');
   const [machines, setMachines] = useState([]);
   const [members, setMembers] = useState([]);
   const [sections, setSections] = useState([]);
@@ -34,7 +34,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [machineFormOpen, setMachineFormOpen] = useState(false);
+  const [machineFormOpen, setMachineFormOpen] = useState(false); const [machineFormPlatform, setMachineFormPlatform] = useState('ubuntu');
   const [actionResults, setActionResults] = useState({});
 
   const loadData = useCallback(async () => {
@@ -60,10 +60,10 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
     return () => { active = false; };
   }, [loadData]);
 
-  const activeConfig = useMemo(() => navigation.find(item => item.id === activePage) || navigation[0], [activePage]);
+  const isTermuxMember = role === 'termux_member'; const visibleNavigation = useMemo(() => isTermuxMember ? navigation.filter(item => item.id === 'termux') : navigation, [isTermuxMember]); const currentPage = isTermuxMember ? 'termux' : activePage; const activeConfig = useMemo(() => navigation.find(item => item.id === currentPage) || navigation[0], [currentPage]);
 
-  function openMachineForm() {
-    setActivePage('admin');
+  function openMachineForm(platform = 'ubuntu') {
+    setMachineFormPlatform(isTermuxMember ? 'termux' : platform); if (!isTermuxMember) setActivePage('admin');
     setMachineFormOpen(true);
     setMobileOpen(false);
   }
@@ -129,16 +129,16 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
     }
   }
 
-  async function addMember(email) {
+  async function addMember(email, memberRole) {
     setBusy('member');
     setError('');
     setNotice('');
     const normalizedEmail = email.trim().toLowerCase();
     try {
-      const { error: insertError } = await supabase.from('minefory_members').insert({ email: normalizedEmail, role: 'co_owner' });
+      const { error: insertError } = await supabase.from('minefory_members').insert({ email: normalizedEmail, role: memberRole });
       if (insertError) throw insertError;
       await loadData();
-      setNotice(`Co-owner adăugat: ${normalizedEmail}. Contul trebuie creat în Supabase Auth.`);
+      setNotice(`${roleLabel(memberRole)} adăugat: ${normalizedEmail}. Contul trebuie creat în Supabase Auth.`);
     } catch (error) {
       setError(`Membrul nu a putut fi adăugat: ${errorText(error)}`);
     } finally {
@@ -147,7 +147,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   }
 
   async function removeMember(email) {
-    if (!window.confirm(`Elimini accesul de co-owner pentru ${email}?`)) return;
+    if (!window.confirm(`Elimini accesul workspace pentru ${email}?`)) return;
     setBusy(`member:${email}`);
     setError('');
     try {
@@ -209,7 +209,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
       </div>
       <div className="nav-label">WORKSPACE</div>
       <nav className="workspace-nav" aria-label="Workspace">
-        {navigation.map(item => {
+        {visibleNavigation.map(item => {
           const Icon = item.icon;
           return <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} type="button" onClick={()=>{setActivePage(item.id);setMachineFormOpen(false);setMobileOpen(false);}}>
             <Icon size={17}/><span>{item.label}</span>
@@ -237,7 +237,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
       </header>
       <section className="content">
         <div className="page-heading">
-          <div><div className="eyebrow">MINEFORY HOST CONTROL</div><h1>{activeConfig.label}</h1><p>{pageDescription(activePage)}</p></div>
+          <div><div className="eyebrow">MINEFORY HOST CONTROL</div><h1>{activeConfig.label}</h1><p>{pageDescription(currentPage)}</p></div>
           <div className="heading-actions"><span className="role-chip"><ShieldCheck size={14}/>{roleLabel(role)}</span><button className="icon-btn" type="button" aria-label="Reîncarcă datele" onClick={()=>{setLoading(true);void loadData().catch(error=>setError(errorText(error))).finally(()=>setLoading(false));}}><RefreshCw size={16}/></button></div>
         </div>
         {globalError && <div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{globalError}</span></div>}
@@ -245,7 +245,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
         {notice && <div className="notice notice-success" role="status"><Check size={17}/><span>{notice}</span></div>}
         {loading ? <div className="empty-state"><LoaderCircle className="spin" size={24}/><span>Se încarcă datele...</span></div>
           : <PageContent
-              page={activePage}
+              page={currentPage} machineFormPlatform={machineFormPlatform}
               machines={shownMachines}
               allMachines={machines}
               machineFormOpen={machineFormOpen}
@@ -269,7 +269,7 @@ export default function Dashboard({ authUser, role, globalError, onSignOut }) {
   </div>;
 }
 
-function PageContent({page,machines,allMachines,machineFormOpen,members,sections,role,busy,results,onOpenMachineForm,onCloseMachineForm,onAction,onSaveMachine,onDeleteMachine,onAddMember,onRemoveMember,onSaveSection,onRemoveSection}) {
+function PageContent({page,machines,allMachines,machineFormOpen,machineFormPlatform,members,sections,role,busy,results,onOpenMachineForm,onCloseMachineForm,onAction,onSaveMachine,onDeleteMachine,onAddMember,onRemoveMember,onSaveSection,onRemoveSection}) {
   if (page === 'admin') return <AdminPanel
     machines={allMachines} sections={sections} role={role} busy={busy} machineFormOpen={machineFormOpen}
     onOpenMachineForm={onOpenMachineForm} onCloseMachineForm={onCloseMachineForm}
@@ -278,8 +278,8 @@ function PageContent({page,machines,allMachines,machineFormOpen,members,sections
   />;
   if (page === 'ranks') return <MemberPanel members={members} role={role} busy={busy} onAdd={onAddMember} onRemove={onRemoveMember}/>;
   if (page === 'ubuntu' || page === 'termux') return <MachineList
-    machines={machines} platform={page} busy={busy} results={results}
-    onAction={onAction} onDelete={onDeleteMachine} onOpenMachineForm={onOpenMachineForm} canManage={role === 'owner' || role === 'co_owner'}
+    machines={machines} platform={page} busy={busy} results={results} role={role} machineFormOpen={machineFormOpen} machineFormPlatform={machineFormPlatform} onCloseMachineForm={onCloseMachineForm} onSaveMachine={onSaveMachine}
+    onAction={onAction} onDelete={onDeleteMachine} onOpenMachineForm={onOpenMachineForm} canManage={role === 'owner' || role === 'co_owner' || (role === 'termux_member' && page === 'termux')}
   />;
   return <Overview machines={allMachines} members={members} sections={sections} results={results}/>;
 }
@@ -312,14 +312,14 @@ function Overview({machines,members,sections,results}) {
   </>;
 }
 
-function MachineList({machines,platform,busy,results,onAction,onDelete,onOpenMachineForm,canManage}) {
+function MachineList({machines,platform,busy,results,role,machineFormOpen,machineFormPlatform,onCloseMachineForm,onSaveMachine,onAction,onDelete,onOpenMachineForm,canManage}) {
   return <section className="section-block">
     <div className="section-title"><div><span className="eyebrow">{platform === 'ubuntu' ? 'SERVER LINUX' : 'ANDROID LINUX ENVIRONMENT'}</span><h2>{platform === 'ubuntu' ? 'Ubuntu Linux' : 'Termux'} <span className="count-chip">{machines.length}</span></h2></div></div>
     <div className="info-banner"><CircleHelp size={17}/><p>Comenzile rulează numai prin agentul Minefory instalat pe mașina ta. Nu există terminal cu text liber; acțiunile sunt fixe și verificate.</p></div>
     {machines.length ? <div className="machine-grid">{machines.map(machine=><MachineCard key={machine.id} machine={machine} result={results[machine.id]} busy={busy} onAction={onAction} onDelete={onDelete} canManage={canManage}/>)}</div>
-      : <div className="empty-state"><Server size={23}/><b>Niciun host {platform === 'ubuntu' ? 'Ubuntu' : 'Termux'}</b><span>Înregistrează o mașină din Admin Panel și instalează agentul pe host.</span></div>}
-    <p className="subtle-note">Pentru Termux, restart serviciu cere pachetul <code>termux-services</code>. Reboot nu este disponibil din Termux.</p>
-    <HostConsole platform={platform} canManage={canManage} onOpenMachineForm={onOpenMachineForm}/>
+      : <div className="empty-state"><Server size={23}/><b>Niciun host {platform === 'ubuntu' ? 'Ubuntu' : 'Termux'}</b><span>{role === 'termux_member' ? 'Folosește butonul „Adaugă host Termux” de mai sus după instalarea agentului.' : 'Înregistrează o mașină din Admin Panel și instalează agentul pe host.'}</span></div>}
+    {role === 'termux_member' && machineFormOpen && <MachineForm busy={busy==='machine'} initialPlatform={machineFormPlatform} termuxOnly onClose={onCloseMachineForm} onSave={async machine=>{if(await onSaveMachine(machine))onCloseMachineForm();}}/>}<p className="subtle-note">Pentru Termux, restart serviciu cere pachetul <code>termux-services</code>. Reboot nu este disponibil din Termux.</p>
+    <HostConsole platform={platform} canManage={canManage} onOpenMachineForm={()=>onOpenMachineForm(platform)}/>
   </section>;
 }
 
@@ -415,7 +415,7 @@ function ResultPanel({result}) {
   </div>;
 }
 
-function AdminPanel({machines,sections,role,busy,machineFormOpen,onOpenMachineForm,onCloseMachineForm,onSaveMachine,onDeleteMachine,onSaveSection,onRemoveSection}) {
+function AdminPanel({machines,sections,role,busy,machineFormOpen,machineFormPlatform,onOpenMachineForm,onCloseMachineForm,onSaveMachine,onDeleteMachine,onSaveSection,onRemoveSection}) {
   const [showSectionForm,setShowSectionForm] = useState(false);
   const canManage = role === 'owner' || role === 'co_owner';
   return <>
@@ -434,14 +434,14 @@ function AdminPanel({machines,sections,role,busy,machineFormOpen,onOpenMachineFo
       </section>
     </div>
     <section className="section-block admin-warning"><ShieldCheck size={18}/><div><b>Comenzi cu allowlist</b><p>Nu se acceptă comenzi arbitrare. Agentul permite doar status, resurse, status/restart pentru serviciul configurat și reboot Ubuntu cu confirmare.</p></div></section>
-    {machineFormOpen && <MachineForm busy={busy==='machine'} onClose={onCloseMachineForm} onSave={async machine=>{if(await onSaveMachine(machine))onCloseMachineForm();}}/>}
+    {machineFormOpen && <MachineForm busy={busy==='machine'} initialPlatform={machineFormPlatform} onClose={onCloseMachineForm} onSave={async machine=>{if(await onSaveMachine(machine))onCloseMachineForm();}}/>}
     {showSectionForm && <SectionForm busy={busy==='section'} onClose={()=>setShowSectionForm(false)} onSave={async section=>{if(await onSaveSection(section))setShowSectionForm(false);}}/>}
   </>;
 }
 
-function MachineForm({busy,onClose,onSave}) {
+function MachineForm({busy,onClose,onSave,initialPlatform='ubuntu',termuxOnly=false}) {
   const [name,setName] = useState('');
-  const [platform,setPlatform] = useState('ubuntu');
+  const [platform,setPlatform] = useState(initialPlatform);
   const [endpoint,setEndpoint] = useState('');
   const [serviceName,setServiceName] = useState('');
   const [token,setToken] = useState('');
@@ -470,7 +470,7 @@ function MachineForm({busy,onClose,onSave}) {
   return <Modal title="Adaugă mașină" onClose={onClose}>
     <form className="management-form" onSubmit={submit}>
       <label>Nume<input value={name} onChange={event=>setName(event.target.value)} required maxLength={60} placeholder="Ubuntu principal"/></label>
-      <label>Platformă<select value={platform} onChange={event=>setPlatform(event.target.value)}><option value="ubuntu">Ubuntu Linux</option><option value="termux">Termux</option></select></label>
+      <label>Platformă<select value={platform} disabled={termuxOnly} onChange={event=>setPlatform(event.target.value)}>{!termuxOnly && <option value="ubuntu">Ubuntu Linux</option>}<option value="termux">Termux</option></select></label>
       <label>Endpoint HTTPS al agentului<input type="url" value={endpoint} onChange={event=>setEndpoint(event.target.value)} required placeholder="https://host.exemplu.ro"/></label>
       <label>Serviciu allowlist{platform === 'termux' && ' (opțional)'}<input value={serviceName} onChange={event=>setServiceName(event.target.value)} required={platform === 'ubuntu'} maxLength={100} placeholder={platform === 'ubuntu' ? 'minefory.service' : 'numele serviciului termux-services'}/></label>
       <label>Token generat pe host<input type="password" autoComplete="new-password" value={token} onChange={event=>setToken(event.target.value)} required minLength={32}/><small>Tokenul este transmis către Function și nu se păstrează în browser.</small></label>
@@ -511,23 +511,23 @@ function SectionForm({busy,onClose,onSave}) {
 }
 
 function MemberPanel({members,role,busy,onAdd,onRemove}) {
-  const [email,setEmail] = useState('');
+  const [email,setEmail] = useState(''); const [memberRole,setMemberRole] = useState('co_owner');
   const isOwner = role === 'owner';
   function submit(event) {
     event.preventDefault();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return;
-    void onAdd(email);
+    void onAdd(email,memberRole);
     setEmail('');
   }
   return <>
-    <div className="info-banner"><ShieldCheck size={17}/><p><b>Owner</b> are control complet. <b>Co-owner</b> poate administra hosturi și secțiuni, dar nu poate modifica rolurile membrilor.</p></div>
-    {isOwner && <section className="panel-card member-add-card"><div className="section-title"><div><span className="eyebrow">ACCES</span><h2>Adaugă Co-owner</h2></div></div>
-      <form className="member-add-form" onSubmit={submit}><label htmlFor="co-owner-email">E-mailul contului Supabase</label><div><Mail size={16}/><input id="co-owner-email" type="email" value={email} onChange={event=>setEmail(event.target.value)} required placeholder="nume@exemplu.ro"/><button className="primary-btn small-btn" type="submit" disabled={busy==='member'}><UserPlus size={15}/>{busy==='member'?'Se adaugă...':'Acordă acces'}</button></div></form>
+    <div className="info-banner"><ShieldCheck size={17}/><p><b>Owner</b> are control complet. <b>Co-owner</b> administrează hosturile și setările. <b>Membru Termux</b> vede și administrează doar hosturile Termux; nu are acces la Ubuntu, administrare sau rankuri.</p></div>
+    {isOwner && <section className="panel-card member-add-card"><div className="section-title"><div><span className="eyebrow">ACCES</span><h2>Adaugă membru</h2></div></div>
+      <form className="member-add-form" onSubmit={submit}><label htmlFor="member-email">E-mailul contului Supabase</label><div><Mail size={16}/><input id="member-email" type="email" value={email} onChange={event=>setEmail(event.target.value)} required placeholder="nume@exemplu.ro"/><select aria-label="Rolul noului membru" value={memberRole} onChange={event=>setMemberRole(event.target.value)}><option value="co_owner">Co-owner</option><option value="termux_member">Membru Termux</option></select><button className="primary-btn small-btn" type="submit" disabled={busy==='member'}><UserPlus size={15}/>{busy==='member'?'Se adaugă...':'Acordă acces'}</button></div></form>
       <p className="panel-description">Contul trebuie creat în Supabase Authentication înainte de a se putea conecta.</p>
     </section>}
     <section className="section-block">
       <div className="section-title"><div><span className="eyebrow">ECHIPĂ</span><h2>Membri și rankuri</h2></div><span className="count-chip">{members.length}</span></div>
-      <div className="member-list">{members.map(member=><div className="member-row" key={member.email}><div className="profile-avatar">{member.email.slice(0,1).toUpperCase()}</div><div className="member-info"><b>{member.email}</b><small>{member.role === 'owner' ? 'Owner' : 'Co-owner'}</small></div><span className={`rank-badge ${member.role}`}>{member.role === 'owner' ? 'OWNER' : 'CO-OWNER'}</span>{isOwner && member.role !== 'owner' && <button className="icon-btn icon-danger" type="button" aria-label={`Elimină ${member.email}`} disabled={!!busy} onClick={()=>onRemove(member.email)}><Trash2 size={15}/></button>}</div>)}</div>
+      <div className="member-list">{members.map(member=><div className="member-row" key={member.email}><div className="profile-avatar">{member.email.slice(0,1).toUpperCase()}</div><div className="member-info"><b>{member.email}</b><small>{roleLabel(member.role)}</small></div><span className={`rank-badge ${member.role}`}>{roleLabel(member.role)}</span>{isOwner && member.role !== 'owner' && <button className="icon-btn icon-danger" type="button" aria-label={`Elimină ${member.email}`} disabled={!!busy} onClick={()=>onRemove(member.email)}><Trash2 size={15}/></button>}</div>)}</div>
     </section>
   </>;
 }
@@ -557,15 +557,15 @@ function actionLabel(action) {
 }
 
 function roleLabel(role) {
-  return role === 'owner' ? 'Owner' : 'Co-owner';
+  return role === 'owner' ? 'Owner' : role === 'termux_member' ? 'Membru Termux' : 'Co-owner';
 }
 
-function pageDescription(page) {
+function roleBadge(role) { return role === 'owner' ? 'OWNER' : role === 'termux_member' ? 'TERMUX' : 'CO-OWNER'; } function pageDescription(page) {
   return {
     overview:'Starea infrastructurii și activitatea workspace-ului.',
     ubuntu:'Mașinile Ubuntu Linux înregistrate în workspace.',
     termux:'Dispozitivele Termux înregistrate în workspace.',
     admin:'Gestionează mașini și personalizează resursele workspace-ului.',
-    ranks:'Gestionează Owner și Co-owner.'
+    ranks:'Gestionează Owner, Co-owner și membrii cu acces doar la Termux.'
   }[page] || '';
 }
