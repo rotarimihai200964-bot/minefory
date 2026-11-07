@@ -63,3 +63,8 @@ Starting a server requires the user to accept the Minecraft EULA in its settings
 The API limits each account to 5 servers and 32 GB of configured RAM across those servers.
 
 The plugin catalog is still a UI selection only; it does not download third-party plugin JARs. This API manages Minecraft server files/processes but does not replace a production isolation layer such as Pterodactyl/Wings or containers. Run it only on a host you control, use HTTPS remotely, and keep server data backed up.
+
+
+## Cloudflare Pages deployment
+
+Use `npm run build` as the build command and `dist` as the output directory. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_ADMIN_EMAIL`, and `VITE_API_URL` in the Cloudflare Pages production build environment. `VITE_API_URL` must be the HTTPS origin of the separate Node.js API. Keep `.env` files out of the public repository; use Cloudflare build variables instead.
