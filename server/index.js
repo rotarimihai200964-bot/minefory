@@ -28,6 +28,9 @@ const pendingProvisioning = new Map();
 const pendingRamChanges = new Map();
 let versionManifest;
 let versionManifestExpires = 0;
+let paperVersions;
+let paperVersionsExpires = 0;
+const javaRequirements = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -299,6 +302,66 @@ async function getManifest() {
   return versionManifest;
 }
 
+async function getPaperVersions() {
+  if (!paperVersions || Date.now() > paperVersionsExpires) {
+    const result = await fetchJson('https://fill.papermc.io/v3/projects/paper/versions');
+    if (!Array.isArray(result.versions)) throw new HttpError(502, 'PaperMC returned an invalid version list.');
+    paperVersions = result.versions
+      .filter(item => item.version?.id && /^\d+\.\d+(?:\.\d+)?$/.test(item.version.id) && Array.isArray(item.builds) && item.builds.length > 0)
+      .map(item => ({
+        id: item.version.id,
+        javaMajor: Number(item.version.java?.version?.minimum) || minimumJavaForMinecraftVersion(item.version.id)
+      }));
+    paperVersionsExpires = Date.now() + 10 * 60 * 1000;
+  }
+  return paperVersions;
+}
+
+function minimumJavaForMinecraftVersion(version) {
+  const [major, minor, patch = 0] = version.split('.').map(Number);
+  if (major >= 26) return 25;
+  if (major > 1 || minor > 20 || (minor === 20 && patch >= 5)) return 21;
+  if (minor >= 17) return 17;
+  return 8;
+}
+
+async function getVersionOptions(software) {
+  if (software === 'Paper') {
+    return (await getPaperVersions()).map(version => ({
+      ...version,
+      javaVersion: `Java ${version.javaMajor}`
+    }));
+  }
+  if (software !== 'Vanilla') throw new HttpError(400, 'Choose Paper or Vanilla software.');
+  const manifest = await getManifest();
+  return manifest.versions
+    .filter(version => version.type === 'release')
+    .map(version => ({
+      id: version.id,
+      javaMajor: minimumJavaForMinecraftVersion(version.id),
+      javaVersion: `Java ${minimumJavaForMinecraftVersion(version.id)}`
+    }));
+}
+
+async function getMinimumJava(version, software) {
+  const cacheKey = `${software}:${version}`;
+  if (javaRequirements.has(cacheKey)) return javaRequirements.get(cacheKey);
+  if (software === 'Paper') {
+    const options = await getPaperVersions();
+    const selected = options.find(item => item.id === version);
+    if (!selected) throw new HttpError(404, `PaperMC has no available builds for Minecraft ${version}.`);
+    javaRequirements.set(cacheKey, selected.javaMajor);
+    return selected.javaMajor;
+  }
+  const manifest = await getManifest();
+  const entry = manifest.versions.find(item => item.id === version && item.type === 'release');
+  if (!entry) throw new HttpError(404, `Minecraft release ${version} was not found.`);
+  const versionInfo = await fetchJson(entry.url);
+  const minimumJava = Number(versionInfo.javaVersion?.majorVersion) || minimumJavaForMinecraftVersion(version);
+  javaRequirements.set(cacheKey, minimumJava);
+  return minimumJava;
+}
+
 function validateVersion(version) {
   if (typeof version !== 'string' || !/^\d+\.\d+(?:\.\d+)?$/.test(version)) {
     throw new HttpError(400, 'Select a valid Minecraft release version.');
@@ -464,7 +527,8 @@ async function writeMetadata(metadata) {
 
 async function serverJarMissing(directory) {
   try {
-    return !(await lstat(path.join(directory, 'server.jar'))).isFile();
+    const jar = await lstat(path.join(directory, 'server.jar'));
+    return !jar.isFile() || jar.size === 0;
   } catch (error) {
     if (error.code === 'ENOENT') return true;
     throw error;
@@ -505,6 +569,8 @@ async function stopServer(userId, serverId) {
 async function startServer(userId, serverId, metadata, directory) {
   const eula = await readFile(path.join(directory, 'eula.txt'), 'utf8');
   if (!/^eula=true\s*$/im.test(eula)) throw new HttpError(409, 'Accept the Minecraft EULA in server settings before starting.');
+  if (await serverJarMissing(directory)) await installServerJar(directory, metadata.version, metadata.software);
+  if (await serverJarMissing(directory)) throw new HttpError(500, 'The server JAR could not be installed. Try again or choose another server version.');
   const javaPath = JAVA_EXECUTABLES[metadata.javaVersion] || process.env.JAVA_PATH || 'java';
   let javaVersion;
   try {
@@ -518,8 +584,7 @@ async function startServer(userId, serverId, metadata, directory) {
   if (javaVersion !== metadata.javaVersion.replace('Java ', '')) {
     throw new HttpError(409, `${metadata.javaVersion} is selected but Java ${javaVersion || 'unknown'} is configured.`);
   }
-  const [major, minor, patch = 0] = metadata.version.split('.').map(Number);
-  const minimumJava = major > 1 || minor > 20 || (minor === 20 && patch >= 5) ? 21 : minor >= 17 ? 17 : 8;
+  const minimumJava = await getMinimumJava(metadata.version, metadata.software);
   const selectedJavaMajor = Number(metadata.javaVersion.match(/\d+/)?.[0]);
   if (selectedJavaMajor < minimumJava) {
     throw new HttpError(409, `Minecraft ${metadata.version} requires Java ${minimumJava} or newer.`);
@@ -560,6 +625,17 @@ async function handleApi(request, response, url) {
         serverIds: principal.serverIds,
         canManageAccess: principal.permissions.includes('manage_access')
       }
+    });
+  }
+
+  if (url.pathname === '/api/versions' && request.method === 'GET') {
+    requirePermission(principal, 'view_servers');
+    const software = url.searchParams.get('software') || 'Paper';
+    const versions = await getVersionOptions(software);
+    return sendJson(response, 200, {
+      software,
+      versions,
+      defaultVersion: versions[0]?.id || null
     });
   }
 
@@ -633,6 +709,11 @@ async function handleApi(request, response, url) {
     validateVersion(version);
     const metadata = validateServerOptions({ ...body, software: body.software || 'Paper' });
     if (!metadata.name) throw new HttpError(400, 'Server name is required.');
+    const minimumJava = await getMinimumJava(version, metadata.software);
+    metadata.javaVersion ||= `Java ${minimumJava}`;
+    if (Number(metadata.javaVersion.replace('Java ', '')) < minimumJava) {
+      throw new HttpError(400, `Minecraft ${version} with ${metadata.software} requires Java ${minimumJava} or newer.`);
+    }
     const existing = await listUserMetadata(ownerId);
     const pending = pendingProvisioning.get(ownerId) || { servers: 0, ram: 0 };
     const requestedRam = metadata.ram || 2;
@@ -691,6 +772,10 @@ async function handleApi(request, response, url) {
     if (getStatus(ownerId, serverId) === 'Online') throw new HttpError(409, 'Stop the server before changing its version or settings.');
     const body = await readJsonBody(request);
     const updated = validateServerOptions(body, metadata);
+    const minimumJava = await getMinimumJava(updated.version, updated.software);
+    if (Number(updated.javaVersion.replace('Java ', '')) < minimumJava) {
+      throw new HttpError(400, `Minecraft ${updated.version} with ${updated.software} requires Java ${minimumJava} or newer.`);
+    }
     const userServers = await listUserMetadata(ownerId);
     const allocatedRam = userServers.reduce((total, server) => total + (server.id === serverId ? updated.ram || 0 : server.ram || 0), 0);
     const ramChange = Math.max(0, (updated.ram || 0) - (metadata.ram || 0));
